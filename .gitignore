@@ -1,0 +1,13 @@
+# Downloaded source mosaics (125 MB - 14 GB) and generated strips.
+generator/cache/
+generator/output/
+
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# FreeCAD backup and temp files
+*.FCBak
+*.FCStd1
+*.fcbak
