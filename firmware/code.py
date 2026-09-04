@@ -64,13 +64,9 @@ HOLD_BLACK_S = 1.0
 # next, starting on the first. Fades ramp between black and the current level.
 BRIGHTNESS_LEVELS = (0.1, 0.20, 0.75, 1.0)
 
-# Mounting orientation. Landscape: imagery enters on the right. Portrait
-# (landscape-left edge up): output is rotated 180 so imagery enters on top.
-PORTRAIT = False
-
 # Scroll register direction per MADCTL line order: landscape (0xA8)
-# decrements, portrait (0x68) increments. If it pans with garbage, negate.
-SCROLL_DIR = 1 if PORTRAIT else -1
+# decrements. If it pans with garbage, negate.
+SCROLL_DIR = -1
 
 # Screen width and height.
 W = 320
@@ -108,9 +104,8 @@ INIT = (
     (0xC1, b"\x10", 0),  # Power control SAP/BT
     (0xC5, b"\x3e\x28", 0),  # VCM control
     (0xC7, b"\x86", 0),  # VCM control 2
-    # MADCTL: BGR color order; 0x68 flips both address-order bits relative
-    # to 0xA8, i.e. a 180-degree rotation in panel memory for portrait.
-    (0x36, b"\x68" if PORTRAIT else b"\xa8", 0),
+    # MADCTL: BGR color order, landscape orientation.
+    (0x36, b"\xa8", 0),
     (0x37, b"\x00\x00", 0),  # Scroll start = 0
     (0x3A, b"\x55", 0),  # 16 bits per pixel
     (0xB1, b"\x00\x18", 0),  # Frame rate control
@@ -213,37 +208,24 @@ touch_last_cycle = 0.0
 def read_touch_zone():
     """Determine which screen half was touched by reading the resistive
     position. Temporarily reconfigures pins for analog reading, then
-    restores detection mode. Returns True for the speed zone (right in
-    landscape, bottom in portrait), False for brightness zone."""
+    restores detection mode. Returns True for the speed zone (right half),
+    False for brightness zone (left half)."""
     global touch_xl, touch_xr, touch_sense
     touch_xl.deinit()
     touch_xr.deinit()
     touch_sense.deinit()
 
-    if PORTRAIT:
-        # Touch panel Y axis runs top-bottom in portrait.
-        yu = digitalio.DigitalInOut(board.TOUCH_YU)
-        yu.switch_to_output(value=True)
-        yd = digitalio.DigitalInOut(board.TOUCH_YD)
-        yd.switch_to_output(value=False)
-        sense = analogio.AnalogIn(board.TOUCH_XL)
-        value = sense.value
-        sense.deinit()
-        yu.deinit()
-        yd.deinit()
-        is_speed = value > 32768
-    else:
-        # Touch panel Y axis runs left-right in landscape.
-        yu = digitalio.DigitalInOut(board.TOUCH_YU)
-        yu.switch_to_output(value=True)
-        yd = digitalio.DigitalInOut(board.TOUCH_YD)
-        yd.switch_to_output(value=False)
-        sense = analogio.AnalogIn(board.TOUCH_XL)
-        value = sense.value
-        sense.deinit()
-        yu.deinit()
-        yd.deinit()
-        is_speed = value > 32768
+    # Touch panel Y axis runs left-right in landscape.
+    yu = digitalio.DigitalInOut(board.TOUCH_YU)
+    yu.switch_to_output(value=True)
+    yd = digitalio.DigitalInOut(board.TOUCH_YD)
+    yd.switch_to_output(value=False)
+    sense = analogio.AnalogIn(board.TOUCH_XL)
+    value = sense.value
+    sense.deinit()
+    yu.deinit()
+    yd.deinit()
+    is_speed = value > 32768
 
     # Restore detection mode.
     touch_xl = digitalio.DigitalInOut(board.TOUCH_XL)
