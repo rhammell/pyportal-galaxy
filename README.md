@@ -1,10 +1,10 @@
 # pyportal-galaxy
 
-A visualization for the Adafruit PyPortal that scrolls a strip cut from a large astronomical mosaic across the screen, producing a slow, continuous journey through a galaxy or nebula.
+A visualization for the Adafruit PyPortal that scrolls a strip cut from a large astronomical mosaic across the screen, producing a slow, continuous journey through a galaxy or nebula. The default source is the [Hubble mosaic of Andromeda](https://science.nasa.gov/missions/hubble/nasas-hubble-telescope-delivers-breathtaking-view-of-andromeda-galaxy/) (M31) from the PHAT and PHAST surveys — 42,208 x 9,870 pixels covering roughly 200 million individually resolved stars.
 
-It is the deep-sky counterpart to [pyportal-flyover](../pyportal-flyover), and reuses that project's display technique unchanged. The difference is in the source: instead of stitching an aerial corridor together from hundreds of map-tile requests, the imagery here is already a single continuous picture, so the generator only has to crop it.
+This repository contains the source code for generating and displaying the galaxy imagery, and CAD files for a 3D-printable PyPortal stand.
 
-The default source is the [Hubble mosaic of Andromeda](https://science.nasa.gov/missions/hubble/nasas-hubble-telescope-delivers-breathtaking-view-of-andromeda-galaxy/) (M31) from the PHAT and PHAST surveys — 42,208 x 9,870 pixels covering roughly 200 million individually resolved stars.
+For a complete description and step-by-step build tutorial, visit the [PyPortal Galaxy Viewer](https://www.hackster.io/rhammell/pyportal-galaxy-viewer-bf7b13) project on Hackster.io.
 
 ## Galaxy Visualization
 
@@ -70,6 +70,7 @@ firmware/     code.py, copied to the CIRCUITPY drive
 generator/    strip generator + requirements
               cache/  downloaded source mosaics (gitignored)
               output/ generated .dat and .png (gitignored)
+cad/          stand design (src/ = editable CAD, export/ = printable STL exports)
 ```
 
 ## Usage
