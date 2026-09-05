@@ -121,14 +121,14 @@ SOURCES: dict[str, Source] = {
         title="Cosmic Cliffs, NGC 3324",
         telescope="JWST NIRCam",
         width=14575,
-        height=11227,
+        height=8441,
         url=(
             "https://mast.stsci.edu/api/latest/Download/file?uri=mast:OPO/"
-            "product/STSCI_PR_2022-031/STSCI-J-p22031c-f-14575x11227.tif"
+            "product/STSCI_PR_2022-031/STSCI-J-p22031a-f-14575x8441.tif"
         ),
-        filename="carina_cosmic_cliffs_14575x11227.tif",
+        filename="carina_cosmic_cliffs_14575x8441.tif",
         credit="NASA, ESA, CSA, STScI",
-        note="134 MB. Small and quick -- a good end-to-end test of the pipeline.",
+        note="137 MB. Small and quick -- a good end-to-end test of the pipeline.",
     ),
     "tarantula": Source(
         title="Tarantula Nebula (30 Doradus)",

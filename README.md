@@ -26,7 +26,7 @@ Full-coverage run times at the slowest pan speed (10 px/s):
 
 | Source | Bands | .dat Size | Scroll Time |
 | --- | --- | --- | --- |
-| `carina` | 25 | 258 MB | 11.5 hr |
+| `carina` | 36 | 257 MB | 14.9 hr |
 | `tarantula` | 36 | 245 MB | 14.9 hr |
 | `andromeda` | 35 | 616 MB | 1.6 days |
 | `vista25k` | 79 | 916 MB | 2.3 days |
@@ -68,7 +68,7 @@ All six are public mosaics from named observatories, verified downloadable. Size
 | Source | Object | Telescope | Pixels | Download |
 | --- | --- | --- | --- | --- |
 | `andromeda` | M31, PHAT+PHAST | Hubble | 42,208 x 9,870 | 993 MB |
-| `carina` | Cosmic Cliffs, NGC 3324 | JWST | 14,575 x 11,227 | 134 MB |
+| `carina` | Cosmic Cliffs, NGC 3324 | JWST | 14,575 x 8,441 | 137 MB |
 | `tarantula` | 30 Doradus | JWST | 14,557 x 8,418 | 125 MB |
 | `vista25k` | Milky Way centre | ESO VISTA | 25,000 x 18,833 | 1.5 GB |
 | `vista40k` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
