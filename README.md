@@ -1,6 +1,6 @@
 # pyportal-galaxy
 
-A visualization for the Adafruit PyPortal that scrolls a strip cut from a large astronomical mosaic across the screen, producing a slow, continuous journey through a galaxy or nebula. The default source is the [Hubble mosaic of Andromeda](https://science.nasa.gov/missions/hubble/nasas-hubble-telescope-delivers-breathtaking-view-of-andromeda-galaxy/) (M31) from the PHAT and PHAST surveys — 42,208 x 9,870 pixels covering roughly 200 million individually resolved stars.
+A visualization for the Adafruit PyPortal that scrolls through large astronomical mosaics, producing a slow, continuous journey across a galaxy or nebula. The generator tiles 240-pixel-tall bands from top to bottom across an entire mosaic, trims away empty regions, and stitches the bands into a single data file that can take days of continuous scrolling to complete. At the slowest pan speed, a full-coverage strip of the Rubin Observatory's Virgo Cluster mosaic takes over 10 days to traverse.
 
 This repository contains the source code for generating and displaying the galaxy imagery, and CAD files for a 3D-printable PyPortal stand.
 
@@ -8,23 +8,47 @@ For a complete description and step-by-step build tutorial, visit the [PyPortal 
 
 ## Galaxy Visualization
 
-Displaying the strip relies on two separate processes — cutting a strip out of a mosaic, and scrolling it across the PyPortal's screen.
+Displaying the strip relies on two separate processes: cutting strips out of a mosaic, and scrolling them across the PyPortal's screen.
 
 ### Image Generation
 
-The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these run from 125 MB to 14 GB), crops a 240-pixel-tall horizontal band across its full width, converts the band to RGB565, and writes it column-major to `generator/output/<source>.dat`.
+The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/<source>.dat`.
 
-Three flags shape the result:
+#### Full coverage mode (primary)
+
+The `--full` flag tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands that fall on black padding at the edges of non-rectangular images are detected and skipped. Within each band, leading and trailing black columns are trimmed so scrolling jumps straight to the content. A short fade-to-black transition (320 columns by default, adjustable with `--fade-cols`) separates each band.
+
+```bash
+.venv/bin/python generator/generate_strip.py --source andromeda --full
+```
+
+Full-coverage run times at the slowest pan speed (10 px/s):
+
+| Source | Bands | .dat Size | Scroll Time |
+| --- | --- | --- | --- |
+| `carina` | 25 | 258 MB | 11.5 hr |
+| `tarantula` | 36 | 245 MB | 14.9 hr |
+| `andromeda` | 35 | 616 MB | 1.6 days |
+| `vista25k` | 79 | 916 MB | 2.3 days |
+| `vista40k` | 126 | 2.3 GB | 5.9 days |
+| `rubin` | 92 | 4.0 GB | 10.4 days |
+
+Rubin reaches the FAT32 4 GB file size limit after 92 of its 215 bands, so the output is automatically capped there.
+
+#### Single band mode
+
+Without `--full`, the generator cuts one 240-pixel-tall band at a given vertical position. This is useful for targeting a specific region of the mosaic, or for producing a shorter strip.
 
 | Flag | Effect |
 | --- | --- |
 | `--source` | Which mosaic to use. Run with `--list` to see all six. |
-| `--scale` | Zoom. `1.0` cuts a 240-px band at native resolution — maximum detail, but a thin slice. `0.25` cuts a 960-px band and shrinks it, covering four times as much of the image at a quarter the detail. Lower values also shorten the strip. |
+| `--scale` | Zoom. `1.0` cuts a 240-px band at native resolution. `0.25` cuts a 960-px band and shrinks it, covering four times as much of the image at a quarter the detail. Lower values also shorten the strip. |
 | `--y` | Where the band sits, as a fraction of the mosaic's height. `0.5` is the middle. |
+| `--gamma` | Brighten midtones before RGB565 conversion. Values above 1.0 lift faint nebulosity. |
 
-A preview, `generator/output/<source>.png`, is written alongside the data. It is decoded back out of the finished `.dat` rather than from the source image, so it reflects the real RGB565 quantization and will expose a badly placed band or a misordered chunk before anything reaches the hardware. Strips wider than 20,000 columns are downscaled by an integer factor rather than truncated, so the preview always covers the whole strip.
+#### Preview
 
-Andromeda at the defaults produces a 42,208 x 240 strip: 20.3 MB, and 1.2 hours of screen time at the slowest pan speed.
+In both modes, a preview PNG is written alongside the data file. It is decoded back out of the finished `.dat` rather than from the source image, so it reflects the real RGB565 quantization and will expose a badly placed band or a misordered chunk before anything reaches the hardware. Strips wider than 20,000 columns are downscaled by an integer factor so the preview always covers the whole strip.
 
 ### Image Display
 
@@ -50,53 +74,69 @@ All six are public mosaics from named observatories, verified downloadable. Size
 | `vista40k` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
 | `rubin` | Virgo Cluster | Rubin | 97,943 x 51,536 | 14.1 GB |
 
-Andromeda is the natural default because its 4.3:1 aspect ratio is already strip-shaped — a single horizontal band runs the length of the disk. The rest are roughly square, so a band crosses only a slice of them.
+Andromeda is the natural default because its 4.3:1 aspect ratio is already strip-shaped. In single-band mode, one horizontal band runs the length of the disk. In full-coverage mode, every source produces a complete traversal regardless of aspect ratio.
 
 ### A note on memory
 
-Pillow has to decode an entire image before it can crop it, which costs `width x height x 3` bytes — 1.2 GiB for Andromeda, but 15 GiB for `rubin`. The three sources above a gigapixel therefore need [pyvips](https://github.com/libvips/pyvips), which reads only the rows the band actually covers:
+Pillow decodes an entire image before cropping, which costs `width x height x 3` bytes: 1.2 GiB for Andromeda, but 15 GiB for Rubin. The three sources above a gigapixel (`vista25k`, `vista40k`, `rubin`) therefore need [pyvips](https://github.com/libvips/pyvips), which reads only the rows each band covers. The generator uses pyvips automatically when it is importable and falls back to Pillow otherwise, so the smaller sources need nothing extra.
 
-```bash
-brew install vips
-.venv/bin/pip install pyvips
-```
+### FAT32 file size limit
 
-The generator uses pyvips automatically when it is importable and falls back to Pillow otherwise, so the smaller sources need nothing extra. It also warns before Pillow attempts a decode larger than 2 GiB.
+The PyPortal's SD card must be FAT32 formatted, which imposes a 4 GB maximum file size. The full-coverage generator monitors the output size and stops adding bands once the limit is reached. For most sources the entire mosaic fits comfortably. Rubin is the exception, capping at 92 of 215 bands, which still provides over 10 days of scroll time at the slowest speed.
 
 ## Repo Layout
 
 ```text
 firmware/     code.py, copied to the CIRCUITPY drive
 generator/    strip generator + requirements
-              cache/  downloaded source mosaics (gitignored)
-              output/ generated .dat and .png (gitignored)
+              cache/   downloaded source mosaics (gitignored)
+              output/  generated .dat and .png files (gitignored)
+                       <source>_full.dat / .png  — full coverage
+                       <source>.dat / .png       — single band
 cad/          stand design (src/ = editable CAD, export/ = printable STL exports)
 ```
 
 ## Usage
 
-Set up a Python environment and install the generator's dependencies (one time):
+### 1. Install dependencies (one time)
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r generator/requirements.txt
 ```
 
-Generate the strip. This downloads the mosaic on first run and caches it:
+For sources larger than a gigapixel (`vista25k`, `vista40k`, `rubin`), pyvips is also required:
 
 ```bash
-.venv/bin/python generator/generate_strip.py --source andromeda
+brew install vips          # macOS; see libvips docs for other platforms
+.venv/bin/pip install pyvips
 ```
 
-Check `generator/output/andromeda.png`. If the band misses the interesting part of the image, re-run with a different `--y`, or a lower `--scale` to cover more of it.
+### 2. Generate a strip
 
-Then deploy in two steps. First, copy the strip data to the root of a FAT32-formatted micro SD card (ex. volume name GALAXY), renaming it to `galaxy.dat`, and insert the card into the PyPortal's SD slot:
+Full coverage (recommended):
 
 ```bash
-cp generator/output/andromeda.dat /Volumes/GALAXY/galaxy.dat
+.venv/bin/python generator/generate_strip.py --source andromeda --full
 ```
 
-Then copy the firmware to the PyPortal's CIRCUITPY drive, and create the `sd` folder the card gets mounted onto (one-time setup, required by CircuitPython):
+Or a single band targeting a specific region:
+
+```bash
+.venv/bin/python generator/generate_strip.py --source andromeda --y 0.5 --scale 1.0
+```
+
+The mosaic is downloaded on first run and cached in `generator/cache/`. Check the preview PNG in `generator/output/` before deploying.
+
+### 3. Deploy to hardware
+
+Copy the strip data to the root of a FAT32-formatted micro SD card (e.g. volume name GALAXY), renaming it to `galaxy.dat`, and insert the card into the PyPortal's SD slot:
+
+```bash
+cp generator/output/andromeda_full.dat /Volumes/GALAXY/galaxy.dat
+```
+
+Copy the firmware to the PyPortal's CIRCUITPY drive, and create the `sd` mount folder (one-time setup):
 
 ```bash
 cp firmware/code.py /Volumes/CIRCUITPY/

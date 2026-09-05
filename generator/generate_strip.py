@@ -1,10 +1,22 @@
 """Generate a scrolling strip from a large astronomical mosaic.
 
-Cuts one horizontal band, 240 pixels tall, straight across a deep-sky
-image and packs it into the raw format the PyPortal firmware streams.
-Where the flyover generator had to project, rotate, and download an
-imagery corridor tile by tile, this only has to crop -- the mosaic is
-already a single continuous picture, so there is no geometry and no API.
+Cuts one or more horizontal bands, 240 pixels tall, straight across a
+deep-sky image and packs them into the raw format the PyPortal firmware
+streams. The mosaic is already a single continuous picture, so the
+generator only has to crop it.
+
+Two modes:
+
+  Single band (default):
+    Cuts one band at a given vertical position. Good for targeting a
+    specific region of the mosaic.
+
+  Full coverage (--full):
+    Tiles bands from top to bottom, covering the entire mosaic.
+    Empty bands (black padding at the edges of non-rectangular images)
+    are skipped, and leading/trailing black columns within each band
+    are trimmed. A short black fade separates each band in the output.
+    The result is a single .dat that scrolls through the whole image.
 
 Outputs, both written to output/:
 
@@ -21,6 +33,7 @@ Usage:
     python generator/generate_strip.py --list             # show all sources
     python generator/generate_strip.py --source carina
     python generator/generate_strip.py --scale 0.25 --y 0.45
+    python generator/generate_strip.py --source carina --full
 
 Source images are downloaded once into cache/ (resumable) and reused.
 Then copy output/<name>.dat to the SD card as galaxy.dat, and
@@ -56,6 +69,17 @@ PREVIEW_MAX_COLS = 20000
 
 # Columns converted per block. Keeps memory flat and gives progress.
 CHUNK_COLS = 4096
+
+# Black columns inserted between bands in --full mode (one screenful).
+FADE_COLS = 320
+
+# Brightness threshold (0-255) for content detection. Columns or bands
+# whose mean grey level falls below this are treated as empty padding.
+CONTENT_THRESHOLD = 10
+
+# FAT32 maximum file size. CircuitPython's VfsFat only supports FAT32,
+# so the .dat must stay under this limit.
+FAT32_MAX_BYTES = 4 * 1024**3  # 4 GiB
 
 HERE = Path(__file__).parent
 CACHE_DIR = HERE / "cache"
@@ -287,42 +311,128 @@ def apply_gamma(band: Image.Image, gamma: float) -> Image.Image:
     return band.point(table * 3)
 
 
+# ------------------------------------------------- full-coverage helpers
+
+
+def open_mosaic(path: Path):
+    """Open the mosaic once, returning (image, width, height, is_pyvips).
+
+    pyvips is preferred for large images because it can crop without
+    decoding the whole file. Pillow works fine for smaller mosaics.
+    """
+    try:
+        import pyvips
+        img = pyvips.Image.new_from_file(str(path), access="random")
+        return img, img.width, img.height, True
+    except ImportError:
+        _warn_if_memory_tight(path)
+        img = Image.open(path)
+        w, h = img.size
+        return img, w, h, False
+
+
+def crop_band_at(img, y0: int, band_h: int, src_w: int, src_h: int,
+                 scale: float, is_pyvips: bool) -> Image.Image | None:
+    """Crop a single band at an absolute pixel row and scale it to HEIGHT.
+
+    Returns a PIL Image or None if the row is out of bounds."""
+    actual_h = min(band_h, src_h - y0)
+    if actual_h <= 0:
+        return None
+
+    out_w = max(1, round(src_w * scale))
+
+    if is_pyvips:
+        region = img.crop(0, y0, src_w, actual_h)
+        if region.bands > 3:
+            region = region[0:3]
+        elif region.bands == 1:
+            region = region.bandjoin([region, region])
+        band = Image.frombytes(
+            "RGB", (region.width, region.height), region.write_to_memory()
+        )
+    else:
+        band = img.crop((0, y0, src_w, y0 + actual_h)).convert("RGB")
+
+    if band.size != (out_w, HEIGHT):
+        band = band.resize((out_w, HEIGHT), Image.Resampling.LANCZOS)
+
+    return band
+
+
+def find_content_bounds(band: Image.Image, threshold: int = CONTENT_THRESHOLD):
+    """Find the horizontal extent of non-black content in a band.
+
+    Converts to greyscale, thresholds, and uses getbbox() to find the
+    bounding box of bright pixels. Returns (x_start, x_end) with x_end
+    exclusive, or None if the band is empty.
+    """
+    grey = band.convert("L")
+    mask = grey.point(lambda p: 255 if p > threshold else 0)
+    bbox = mask.getbbox()
+    if bbox is None:
+        return None
+    return bbox[0], bbox[2]
+
+
+def band_mean_brightness(band: Image.Image) -> float:
+    """Mean grey level of the band (0-255)."""
+    from PIL import ImageStat
+    stat = ImageStat.Stat(band.convert("L"))
+    return stat.mean[0]
+
+
 # --------------------------------------------------------------- packing
 
 
-def write_dat(band: Image.Image, dest: Path) -> int:
-    """Pack the band into column-major big-endian RGB565 and write it.
+def pack_columns(band: Image.Image, out, label: str = "") -> int:
+    """Pack a band into column-major big-endian RGB565, writing to `out`.
 
     The firmware reads one column at a time, so columns must be
     contiguous. Transposing makes the row-major bytes come out in column
     order, and the ILI9341 takes the high byte first over its 8-bit bus.
-    """
 
+    Returns the number of columns written.
+    """
     width = band.width
     n_chunks = math.ceil(width / CHUNK_COLS)
+    prefix = f"  {label} " if label else "  "
 
+    for i, x0 in enumerate(range(0, width, CHUNK_COLS)):
+        cw = min(CHUNK_COLS, width - x0)
+        piece = band.crop((x0, 0, x0 + cw, HEIGHT))
+        raw = piece.transpose(Image.Transpose.TRANSPOSE).tobytes()
+
+        pixels = array.array(
+            "H",
+            (
+                ((raw[j] & 0xF8) << 8)
+                | ((raw[j + 1] & 0xFC) << 3)
+                | (raw[j + 2] >> 3)
+                for j in range(0, len(raw), 3)
+            ),
+        )
+        if sys.byteorder == "little":
+            pixels.byteswap()
+        out.write(pixels.tobytes())
+
+        print(f"{prefix}chunk {i + 1}/{n_chunks}", flush=True)
+
+    return width
+
+
+def write_black_columns(out, n: int) -> None:
+    """Write n columns of black (zero) RGB565 pixels."""
+    black = b"\x00" * COL_BYTES
+    for _ in range(n):
+        out.write(black)
+
+
+def write_dat(band: Image.Image, dest: Path) -> int:
+    """Pack a single band into a new .dat file. Returns total bytes."""
     with open(dest, "wb") as out:
-        for i, x0 in enumerate(range(0, width, CHUNK_COLS)):
-            cw = min(CHUNK_COLS, width - x0)
-            piece = band.crop((x0, 0, x0 + cw, HEIGHT))
-            raw = piece.transpose(Image.Transpose.TRANSPOSE).tobytes()
-
-            pixels = array.array(
-                "H",
-                (
-                    ((raw[j] & 0xF8) << 8)
-                    | ((raw[j + 1] & 0xFC) << 3)
-                    | (raw[j + 2] >> 3)
-                    for j in range(0, len(raw), 3)
-                ),
-            )
-            if sys.byteorder == "little":
-                pixels.byteswap()
-            out.write(pixels.tobytes())
-
-            print(f"  chunk {i + 1}/{n_chunks}", flush=True)
-
-    return width * COL_BYTES
+        cols = pack_columns(band, out)
+    return cols * COL_BYTES
 
 
 def build_preview(dat_path: Path, dest: Path, length: int) -> int:
@@ -423,31 +533,38 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="brighten midtones before RGB565; >1 lifts faint nebulosity",
     )
+    p.add_argument(
+        "--full",
+        action="store_true",
+        help="tile bands top-to-bottom, covering the entire mosaic",
+    )
+    p.add_argument(
+        "--fade-cols",
+        type=int,
+        default=FADE_COLS,
+        help="black columns inserted between bands in --full mode",
+    )
     p.add_argument("--name", help="output basename (default: the source key)")
     return p.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    if args.list:
-        list_sources()
-        return
+def print_run_times(total_cols: int) -> None:
+    """Print estimated scroll times at each touch-selectable speed."""
+    print("\nRun time at each touch-selectable speed:")
+    for speed in SPEED_LEVELS:
+        secs = total_cols / speed
+        if secs < 3600:
+            print(f"  {speed:>3} px/s   {secs / 60:.1f} min")
+        elif secs < 86400:
+            print(f"  {speed:>3} px/s   {secs / 3600:.1f} hr")
+        else:
+            print(f"  {speed:>3} px/s   {secs / 86400:.1f} days")
 
+
+def run_single_band(args, src, source_file, dat_path, png_path) -> None:
+    """Original single-band mode: cut one band at --y."""
     if not 0.0 <= args.y <= 1.0:
         sys.exit("--y must be between 0.0 and 1.0")
-    if not 0.0 < args.scale <= 1.0:
-        sys.exit("--scale must be greater than 0 and at most 1.0")
-
-    src = SOURCES[args.source]
-    name = args.name or args.source
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    dat_path = OUTPUT_DIR / f"{name}.dat"
-    png_path = OUTPUT_DIR / f"{name}.png"
-
-    print(f"{src.title} -- {src.telescope}")
-    print(f"Credit: {src.credit}\n")
-
-    source_file = ensure_source(src)
 
     print(f"\nCropping a {round(HEIGHT / args.scale)}px band at y={args.y:.2f} ...")
     band, src_w, src_h = extract_band(source_file, args.scale, args.y)
@@ -462,19 +579,129 @@ def main() -> None:
 
     print(f"\nWrote {dat_path} ({size / 1e6:.1f} MB)")
     print(f"Wrote {png_path} (preview{f', {factor}x downscaled' if factor > 1 else ''})")
-    print("\nRun time at each touch-selectable speed:")
-    for speed in SPEED_LEVELS:
-        secs = length / speed
-        if secs < 3600:
-            print(f"  {speed:>3} px/s   {secs / 60:.1f} min")
-        else:
-            print(f"  {speed:>3} px/s   {secs / 3600:.1f} hr")
+    print_run_times(length)
     print(
         f"\nCheck {png_path.name} before deploying -- if the band misses the "
         f"interesting part,\nre-run with a different --y or a lower --scale."
         f"\nThen copy {dat_path.name} to the SD card as galaxy.dat, and "
         f"firmware/code.py to CIRCUITPY."
     )
+
+
+def run_full_coverage(args, src, source_file, dat_path, png_path) -> None:
+    """Full-coverage mode: tile bands top-to-bottom across the mosaic."""
+    fade_cols = args.fade_cols
+
+    img, src_w, src_h, is_pyvips = open_mosaic(source_file)
+    band_h = max(1, round(HEIGHT / args.scale))
+    n_bands = math.ceil(src_h / band_h)
+
+    print(f"\nFull coverage: {n_bands} bands of {band_h}px across "
+          f"{src_w:,} x {src_h:,} at scale {args.scale}")
+
+    total_cols = 0
+    bands_written = 0
+    max_cols = FAT32_MAX_BYTES // COL_BYTES
+
+    with open(dat_path, "wb") as out:
+        for band_idx in range(n_bands):
+            y0 = band_idx * band_h
+            label = f"band {band_idx + 1}/{n_bands}"
+
+            band = crop_band_at(img, y0, band_h, src_w, src_h,
+                                args.scale, is_pyvips)
+            if band is None:
+                print(f"  {label}: out of bounds, skipping")
+                continue
+
+            mean_br = band_mean_brightness(band)
+            if mean_br < CONTENT_THRESHOLD:
+                print(f"  {label}: empty (mean brightness {mean_br:.1f}), skipping")
+                continue
+
+            bounds = find_content_bounds(band)
+            if bounds is None:
+                print(f"  {label}: no content after threshold, skipping")
+                continue
+
+            x_start, x_end = bounds
+            if x_start > 0 or x_end < band.width:
+                band = band.crop((x_start, 0, x_end, HEIGHT))
+                print(f"  {label}: trimmed to columns {x_start:,}-{x_end:,} "
+                      f"({band.width:,} cols)")
+            else:
+                print(f"  {label}: {band.width:,} cols")
+
+            band = apply_gamma(band, args.gamma)
+
+            # Check whether this band (plus fade) would exceed FAT32.
+            needed = band.width + (fade_cols if bands_written > 0 else 0)
+            if total_cols + needed > max_cols:
+                remaining = max_cols - total_cols
+                if bands_written > 0:
+                    remaining -= fade_cols
+                if remaining <= 0:
+                    print(f"\n  FAT32 limit reached ({FAT32_MAX_BYTES / 1e9:.1f} GB). "
+                          f"Stopping after {bands_written} bands.")
+                    break
+                band = band.crop((0, 0, remaining, HEIGHT))
+                print(f"  truncated to {remaining:,} cols (FAT32 limit)")
+
+            if bands_written > 0:
+                write_black_columns(out, fade_cols)
+                total_cols += fade_cols
+
+            cols = pack_columns(band, out, label=label)
+            total_cols += cols
+            bands_written += 1
+
+    if not is_pyvips:
+        img.close()
+
+    if bands_written == 0:
+        sys.exit("No bands with content found. The mosaic may be empty.")
+
+    size = total_cols * COL_BYTES
+    factor = build_preview(dat_path, png_path, total_cols)
+
+    print(f"\nFull coverage: {bands_written} bands, "
+          f"{total_cols:,} total columns")
+    print(f"Wrote {dat_path} ({size / 1e6:.1f} MB)")
+    print(f"Wrote {png_path} (preview{f', {factor}x downscaled' if factor > 1 else ''})")
+    print_run_times(total_cols)
+    print(
+        f"\nCheck {png_path.name} before deploying."
+        f"\nThen copy {dat_path.name} to the SD card as galaxy.dat, and "
+        f"firmware/code.py to CIRCUITPY."
+    )
+
+
+def main() -> None:
+    args = parse_args()
+    if args.list:
+        list_sources()
+        return
+
+    if not 0.0 < args.scale <= 1.0:
+        sys.exit("--scale must be greater than 0 and at most 1.0")
+
+    src = SOURCES[args.source]
+    name = args.name or args.source
+    if args.full and not args.name:
+        name = f"{args.source}_full"
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    dat_path = OUTPUT_DIR / f"{name}.dat"
+    png_path = OUTPUT_DIR / f"{name}.png"
+
+    print(f"{src.title} -- {src.telescope}")
+    print(f"Credit: {src.credit}\n")
+
+    source_file = ensure_source(src)
+
+    if args.full:
+        run_full_coverage(args, src, source_file, dat_path, png_path)
+    else:
+        run_single_band(args, src, source_file, dat_path, png_path)
 
 
 if __name__ == "__main__":
