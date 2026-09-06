@@ -140,17 +140,7 @@ SOURCES: dict[str, Source] = {
         credit="ESA/Webb, NASA, CSA, STScI",
         note="125 MB.",
     ),
-    "vista25k": Source(
-        title="Milky Way Centre, 25K reduction",
-        telescope="ESO VISTA",
-        width=25000,
-        height=18833,
-        url="https://cdn.eso.org/images/publicationtiff25k/eso1242a.tif",
-        filename="vista_milky_way_centre_25k.tif",
-        credit="ESO/VVV Survey/D. Minniti. Acknowledgement: Ignacio Toledo, Martin Kornmesser",
-        note="1.5 GB. Needs pyvips on an 8 GB machine.",
-    ),
-    "vista40k": Source(
+    "vista": Source(
         title="Milky Way Centre, 40K reduction",
         telescope="ESO VISTA",
         width=40000,

@@ -29,8 +29,7 @@ Full-coverage run times at the slowest pan speed (10 px/s):
 | `carina` | 36 | 257 MB | 14.9 hr |
 | `tarantula` | 36 | 245 MB | 14.9 hr |
 | `andromeda` | 35 | 616 MB | 1.6 days |
-| `vista25k` | 79 | 916 MB | 2.3 days |
-| `vista40k` | 126 | 2.3 GB | 5.9 days |
+| `vista` | 126 | 2.3 GB | 5.9 days |
 | `rubin` | 92 | 4.0 GB | 10.4 days |
 
 Rubin reaches the FAT32 4 GB file size limit after 92 of its 215 bands, so the output is automatically capped there.
@@ -41,7 +40,7 @@ Without `--full`, the generator cuts one 240-pixel-tall band at a given vertical
 
 | Flag | Effect |
 | --- | --- |
-| `--source` | Which mosaic to use. Run with `--list` to see all six. |
+| `--source` | Which mosaic to use. Run with `--list` to see all five. |
 | `--scale` | Zoom. `1.0` cuts a 240-px band at native resolution. `0.25` cuts a 960-px band and shrinks it, covering four times as much of the image at a quarter the detail. Lower values also shorten the strip. |
 | `--y` | Where the band sits, as a fraction of the mosaic's height. `0.5` is the middle. |
 | `--gamma` | Brighten midtones before RGB565 conversion. Values above 1.0 lift faint nebulosity. |
@@ -63,22 +62,21 @@ Touch controls split the screen in half:
 
 ## Image Sources
 
-All six are public mosaics from named observatories, verified downloadable. Sizes are the download, not the decoded size in memory.
+All five are public mosaics from named observatories, verified downloadable. Sizes are the download, not the decoded size in memory.
 
 | Source | Object | Telescope | Pixels | Download |
 | --- | --- | --- | --- | --- |
 | `andromeda` | M31, PHAT+PHAST | Hubble | 42,208 x 9,870 | 993 MB |
 | `carina` | Cosmic Cliffs, NGC 3324 | JWST | 14,575 x 8,441 | 137 MB |
 | `tarantula` | 30 Doradus | JWST | 14,557 x 8,418 | 125 MB |
-| `vista25k` | Milky Way centre | ESO VISTA | 25,000 x 18,833 | 1.5 GB |
-| `vista40k` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
+| `vista` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
 | `rubin` | Virgo Cluster | Rubin | 97,943 x 51,536 | 14.1 GB |
 
 Andromeda is the natural default because its 4.3:1 aspect ratio is already strip-shaped. In single-band mode, one horizontal band runs the length of the disk. In full-coverage mode, every source produces a complete traversal regardless of aspect ratio.
 
 ### A note on memory
 
-Pillow decodes an entire image before cropping, which costs `width x height x 3` bytes: 1.2 GiB for Andromeda, but 15 GiB for Rubin. The three sources above a gigapixel (`vista25k`, `vista40k`, `rubin`) therefore need [pyvips](https://github.com/libvips/pyvips), which reads only the rows each band covers. The generator uses pyvips automatically when it is importable and falls back to Pillow otherwise, so the smaller sources need nothing extra.
+Pillow decodes an entire image before cropping, which costs `width x height x 3` bytes: 1.2 GiB for Andromeda, but 15 GiB for Rubin. The two sources above a gigapixel (`vista`, `rubin`) therefore need [pyvips](https://github.com/libvips/pyvips), which reads only the rows each band covers. The generator uses pyvips automatically when it is importable and falls back to Pillow otherwise, so the smaller sources need nothing extra.
 
 ### FAT32 file size limit
 
@@ -105,7 +103,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r generator/requirements.txt
 ```
 
-For sources larger than a gigapixel (`vista25k`, `vista40k`, `rubin`), pyvips is also required:
+For sources larger than a gigapixel (`vista`, `rubin`), pyvips is also required:
 
 ```bash
 brew install vips          # macOS; see libvips docs for other platforms
