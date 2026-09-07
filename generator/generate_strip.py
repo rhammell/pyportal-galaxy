@@ -5,19 +5,6 @@ deep-sky image and packs them into the raw format the PyPortal firmware
 streams. The mosaic is already a single continuous picture, so the
 generator only has to crop it.
 
-Two modes:
-
-  Single band (default):
-    Cuts one band at a given vertical position. Good for targeting a
-    specific region of the mosaic.
-
-  Full coverage (--full):
-    Tiles bands from top to bottom, covering the entire mosaic.
-    Empty bands (black padding at the edges of non-rectangular images)
-    are skipped, and leading/trailing black columns within each band
-    are trimmed. A short black fade separates each band in the output.
-    The result is a single .dat that scrolls through the whole image.
-
 Outputs, both written to output/:
 
   <name>.dat -- raw big-endian RGB565 pixels, column-major (each screen
@@ -32,8 +19,7 @@ Usage:
     python generator/generate_strip.py                    # Andromeda, defaults
     python generator/generate_strip.py --list             # show all sources
     python generator/generate_strip.py --source carina
-    python generator/generate_strip.py --scale 0.25 --y 0.45
-    python generator/generate_strip.py --source carina --full
+    
 
 Source images are downloaded once into cache/ (resumable) and reused.
 Then copy output/<name>.dat to the SD card as galaxy.dat, and
@@ -215,64 +201,6 @@ def ensure_source(src: Source) -> Path:
     return dest
 
 
-# ------------------------------------------------------------- band crop
-
-
-def extract_band(path: Path, scale: float, y_frac: float) -> tuple[Image.Image, int, int]:
-    """Crop the horizontal band and scale it to exactly (out_w, HEIGHT).
-
-    `scale` is a zoom factor: 1.0 takes a 240-px band at native resolution
-    (maximum detail, a thin slice), while 0.25 takes a 960-px band and
-    shrinks it (four times as much of the image, at a quarter the detail).
-    `y_frac` places the band's centre as a fraction of the full height.
-
-    pyvips is used when available because it reads only the rows it needs.
-    Pillow has to decode the entire image first, which is fine up to about
-    a gigapixel and impossible past it.
-    """
-
-    try:
-        import pyvips
-    except ImportError:
-        pyvips = None
-
-    band_h = max(1, round(HEIGHT / scale))
-
-    if pyvips is not None:
-        img = pyvips.Image.new_from_file(str(path), access="random")
-        src_w, src_h = img.width, img.height
-        y0 = _band_top(src_h, band_h, y_frac)
-        region = img.crop(0, y0, src_w, min(band_h, src_h - y0))
-        if region.bands > 3:
-            region = region[0:3]
-        elif region.bands == 1:
-            region = region.bandjoin([region, region])
-        band = Image.frombytes(
-            "RGB", (region.width, region.height), region.write_to_memory()
-        )
-    else:
-        _warn_if_memory_tight(path)
-        img = Image.open(path)
-        src_w, src_h = img.size
-        y0 = _band_top(src_h, band_h, y_frac)
-        band = img.crop((0, y0, src_w, min(y0 + band_h, src_h))).convert("RGB")
-        img.close()
-
-    # Scale the (now small) band to the exact strip height. Doing this
-    # after the crop keeps the expensive resize off the full mosaic.
-    out_w = max(1, round(src_w * scale))
-    if band.size != (out_w, HEIGHT):
-        band = band.resize((out_w, HEIGHT), Image.Resampling.LANCZOS)
-
-    return band, src_w, src_h
-
-
-def _band_top(src_h: int, band_h: int, y_frac: float) -> int:
-    """Top edge of the band, clamped so it stays inside the image."""
-    y0 = round(src_h * y_frac - band_h / 2)
-    return max(0, min(y0, max(0, src_h - band_h)))
-
-
 def _warn_if_memory_tight(path: Path) -> None:
     """Pillow decodes the whole mosaic to crop it. Say so before it tries."""
     with Image.open(path) as probe:
@@ -301,7 +229,7 @@ def apply_gamma(band: Image.Image, gamma: float) -> Image.Image:
     return band.point(table * 3)
 
 
-# ------------------------------------------------- full-coverage helpers
+# ------------------------------------------------- crop & process
 
 
 def open_mosaic(path: Path):
@@ -506,33 +434,10 @@ def parse_args() -> argparse.Namespace:
         "--source", default=DEFAULT_SOURCE, choices=sorted(SOURCES), help="which mosaic"
     )
     p.add_argument(
-        "--scale",
-        type=float,
-        default=1.0,
-        help="zoom factor; 1.0 = native detail, lower = more of the image, less detail",
-    )
-    p.add_argument(
-        "--y",
-        type=float,
-        default=0.5,
-        help="band centre as a fraction of image height (0.0 top, 1.0 bottom)",
-    )
-    p.add_argument(
         "--gamma",
         type=float,
         default=1.0,
         help="brighten midtones before RGB565; >1 lifts faint nebulosity",
-    )
-    p.add_argument(
-        "--full",
-        action="store_true",
-        help="tile bands top-to-bottom, covering the entire mosaic",
-    )
-    p.add_argument(
-        "--fade-cols",
-        type=int,
-        default=FADE_COLS,
-        help="black columns inserted between bands in --full mode",
     )
     p.add_argument("--name", help="output basename (default: the source key)")
     return p.parse_args()
@@ -551,43 +456,16 @@ def print_run_times(total_cols: int) -> None:
             print(f"  {speed:>3} px/s   {secs / 86400:.1f} days")
 
 
-def run_single_band(args, src, source_file, dat_path, png_path) -> None:
-    """Original single-band mode: cut one band at --y."""
-    if not 0.0 <= args.y <= 1.0:
-        sys.exit("--y must be between 0.0 and 1.0")
-
-    print(f"\nCropping a {round(HEIGHT / args.scale)}px band at y={args.y:.2f} ...")
-    band, src_w, src_h = extract_band(source_file, args.scale, args.y)
-    band = apply_gamma(band, args.gamma)
-
-    length = band.width
-    print(f"Source {src_w:,} x {src_h:,} -> strip {length:,} x {HEIGHT}")
-    print(f"Packing {length:,} columns ...")
-    size = write_dat(band, dat_path)
-
-    factor = build_preview(dat_path, png_path, length)
-
-    print(f"\nWrote {dat_path} ({size / 1e6:.1f} MB)")
-    print(f"Wrote {png_path} (preview{f', {factor}x downscaled' if factor > 1 else ''})")
-    print_run_times(length)
-    print(
-        f"\nCheck {png_path.name} before deploying -- if the band misses the "
-        f"interesting part,\nre-run with a different --y or a lower --scale."
-        f"\nThen copy {dat_path.name} to the SD card as galaxy.dat, and "
-        f"firmware/code.py to CIRCUITPY."
-    )
-
-
-def run_full_coverage(args, src, source_file, dat_path, png_path) -> None:
+def run_generator(args, src, source_file, dat_path, png_path) -> None:
     """Full-coverage mode: tile bands top-to-bottom across the mosaic."""
-    fade_cols = args.fade_cols
+    fade_cols = FADE_COLS
 
     img, src_w, src_h, is_pyvips = open_mosaic(source_file)
-    band_h = max(1, round(HEIGHT / args.scale))
+    band_h = HEIGHT
     n_bands = math.ceil(src_h / band_h)
 
     print(f"\nFull coverage: {n_bands} bands of {band_h}px across "
-          f"{src_w:,} x {src_h:,} at scale {args.scale}")
+          f"{src_w:,} x {src_h:,} ")
 
     total_cols = 0
     bands_written = 0
@@ -599,7 +477,7 @@ def run_full_coverage(args, src, source_file, dat_path, png_path) -> None:
             label = f"band {band_idx + 1}/{n_bands}"
 
             band = crop_band_at(img, y0, band_h, src_w, src_h,
-                                args.scale, is_pyvips)
+                                1.0, is_pyvips)
             if band is None:
                 print(f"  {label}: out of bounds, skipping")
                 continue
@@ -672,13 +550,8 @@ def main() -> None:
         list_sources()
         return
 
-    if not 0.0 < args.scale <= 1.0:
-        sys.exit("--scale must be greater than 0 and at most 1.0")
-
     src = SOURCES[args.source]
     name = args.name or args.source
-    if args.full and not args.name:
-        name = f"{args.source}_full"
     OUTPUT_DIR.mkdir(exist_ok=True)
     dat_path = OUTPUT_DIR / f"{name}.dat"
     png_path = OUTPUT_DIR / f"{name}.png"
@@ -688,10 +561,7 @@ def main() -> None:
 
     source_file = ensure_source(src)
 
-    if args.full:
-        run_full_coverage(args, src, source_file, dat_path, png_path)
-    else:
-        run_single_band(args, src, source_file, dat_path, png_path)
+    run_generator(args, src, source_file, dat_path, png_path)
 
 
 if __name__ == "__main__":

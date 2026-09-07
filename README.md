@@ -1,6 +1,6 @@
 # pyportal-galaxy
 
-A visualization for the Adafruit PyPortal that scrolls through large astronomical mosaics, producing a slow, continuous journey across a galaxy or nebula. The generator tiles 240-pixel-tall bands from top to bottom across an entire mosaic, trims away empty regions, and stitches the bands into a single data file that can take days of continuous scrolling to complete. At the slowest pan speed, a full-coverage strip of the Rubin Observatory's Virgo Cluster mosaic takes over 10 days to traverse.
+A visualization for the Adafruit PyPortal that scrolls through large astronomical mosaics, producing a slow, continuous journey across a galaxy or nebula. The generator tiles 240-pixel-tall bands from top to bottom across an entire mosaic, trims away empty regions, and stitches the bands into a single data file that can take days of continuous scrolling to complete. At the slowest pan speed, a strip of the Rubin Observatory's Virgo Cluster mosaic takes over 10 days to traverse.
 
 This repository contains the source code for generating and displaying the galaxy imagery, and CAD files for a 3D-printable PyPortal stand.
 
@@ -14,15 +14,13 @@ Displaying the strip relies on two separate processes: cutting strips out of a m
 
 The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/<source>.dat`.
 
-#### Full coverage mode (primary)
-
-The `--full` flag tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands that fall on black padding at the edges of non-rectangular images are detected and skipped. Within each band, leading and trailing black columns are trimmed so scrolling jumps straight to the content. A short fade-to-black transition (320 columns by default, adjustable with `--fade-cols`) separates each band.
+The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands that fall on black padding at the edges of non-rectangular images are detected and skipped. Within each band, leading and trailing black columns are trimmed so scrolling jumps straight to the content. A short fade-to-black transition (320 columns by default, adjustable with `--fade-cols`) separates each band.
 
 ```bash
-.venv/bin/python generator/generate_strip.py --source andromeda --full
+.venv/bin/python generator/generate_strip.py --source andromeda
 ```
 
-Full-coverage run times at the slowest pan speed (10 px/s):
+Run times at the slowest pan speed (10 px/s):
 
 | Source | Bands | .dat Size | Scroll Time |
 | --- | --- | --- | --- |
@@ -34,20 +32,14 @@ Full-coverage run times at the slowest pan speed (10 px/s):
 
 Rubin reaches the FAT32 4 GB file size limit after 92 of its 215 bands, so the output is automatically capped there.
 
-#### Single band mode
-
-Without `--full`, the generator cuts one 240-pixel-tall band at a given vertical position. This is useful for targeting a specific region of the mosaic, or for producing a shorter strip.
-
 | Flag | Effect |
 | --- | --- |
 | `--source` | Which mosaic to use. Run with `--list` to see all five. |
-| `--scale` | Zoom. `1.0` cuts a 240-px band at native resolution. `0.25` cuts a 960-px band and shrinks it, covering four times as much of the image at a quarter the detail. Lower values also shorten the strip. |
-| `--y` | Where the band sits, as a fraction of the mosaic's height. `0.5` is the middle. |
 | `--gamma` | Brighten midtones before RGB565 conversion. Values above 1.0 lift faint nebulosity. |
 
 #### Preview
 
-In both modes, a preview PNG is written alongside the data file. It is decoded back out of the finished `.dat` rather than from the source image, so it reflects the real RGB565 quantization and will expose a badly placed band or a misordered chunk before anything reaches the hardware. Strips wider than 20,000 columns are downscaled by an integer factor so the preview always covers the whole strip.
+A preview PNG is written alongside the data file. It is decoded back out of the finished `.dat` rather than from the source image, so it reflects the real RGB565 quantization and will expose a badly placed band or a misordered chunk before anything reaches the hardware. Strips wider than 20,000 columns are downscaled by an integer factor so the preview always covers the whole strip.
 
 ### Image Display
 
@@ -89,8 +81,7 @@ firmware/     code.py, copied to the CIRCUITPY drive
 generator/    strip generator + requirements
               cache/   downloaded source mosaics (gitignored)
               output/  generated .dat and .png files (gitignored)
-                       <source>_full.dat / .png  — full coverage
-                       <source>.dat / .png       — single band
+                       <source>.dat / .png       — generated strip
 cad/          stand design (src/ = editable CAD, export/ = printable STL exports)
 ```
 
@@ -112,16 +103,8 @@ brew install vips          # macOS; see libvips docs for other platforms
 
 ### 2. Generate a strip
 
-Full coverage (recommended):
-
 ```bash
-.venv/bin/python generator/generate_strip.py --source andromeda --full
-```
-
-Or a single band targeting a specific region:
-
-```bash
-.venv/bin/python generator/generate_strip.py --source andromeda --y 0.5 --scale 1.0
+.venv/bin/python generator/generate_strip.py --source andromeda
 ```
 
 The mosaic is downloaded on first run and cached in `generator/cache/`. Check the preview PNG in `generator/output/` before deploying.
@@ -131,7 +114,7 @@ The mosaic is downloaded on first run and cached in `generator/cache/`. Check th
 Copy the strip data to the root of a FAT32-formatted micro SD card (e.g. volume name GALAXY), renaming it to `galaxy.dat`, and insert the card into the PyPortal's SD slot:
 
 ```bash
-cp generator/output/andromeda_full.dat /Volumes/GALAXY/galaxy.dat
+cp generator/output/andromeda.dat /Volumes/GALAXY/galaxy.dat
 ```
 
 Copy the firmware to the PyPortal's CIRCUITPY drive, and create the `sd` mount folder (one-time setup):
