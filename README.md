@@ -64,7 +64,7 @@ All five are public mosaics from named observatories, verified downloadable. Siz
 | `vista` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
 | `rubin` | Virgo Cluster | Rubin | 97,943 x 51,536 | 14.1 GB |
 
-Andromeda is the natural default because its 4.3:1 aspect ratio is already strip-shaped. In single-band mode, one horizontal band runs the length of the disk. In full-coverage mode, every source produces a complete traversal regardless of aspect ratio.
+Andromeda is the natural default because its 4.3:1 aspect ratio means it translates into a nearly continuous strip with very few empty edges to trim. Regardless of the original aspect ratio, every source produces a complete traversal of the mosaic.
 
 ### A note on memory
 
@@ -72,7 +72,7 @@ Pillow decodes an entire image before cropping, which costs `width x height x 3`
 
 ### FAT32 file size limit
 
-The PyPortal's SD card must be FAT32 formatted, which imposes a 4 GB maximum file size. The full-coverage generator monitors the output size and stops adding bands once the limit is reached. For most sources the entire mosaic fits comfortably. Rubin is the exception, capping at 92 of 215 bands, which still provides over 10 days of scroll time at the slowest speed.
+The PyPortal's SD card must be FAT32 formatted, which imposes a 4 GB maximum file size. The generator monitors the output size and stops adding bands once the limit is reached. For most sources the entire mosaic fits comfortably. Rubin is the exception, capping at 92 of 215 bands, which still provides over 10 days of scroll time at the slowest speed.
 
 ## Repo Layout
 
