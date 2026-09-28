@@ -50,7 +50,7 @@ For smooth animation, the sketch drives the ILI9341 display controller directly 
 Touch controls split the screen in half:
 
 - **Left half** cycles brightness through 10%, 20%, 75%, and 100%.
-- **Right half** cycles pan speed through 10, 30, 60, 120, and 200 px/s.
+- **Right half** cycles pan speed through 10, 120, 240, 480, and 800 px/s.
 
 ## Image Sources
 

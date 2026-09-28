@@ -46,7 +46,7 @@ HEIGHT = 240
 COL_BYTES = HEIGHT * 2
 
 # Pan speeds the firmware cycles through on touch, used for the estimates.
-SPEED_LEVELS = (10, 30, 60, 120, 200)
+SPEED_LEVELS = (10, 120, 240, 480, 800)
 
 # Widest preview to write. Longer strips are downscaled by an integer
 # factor rather than truncated: seeing the whole strip matters more than

@@ -54,7 +54,7 @@
 // Pan speed in pixels per second and loop rate. The loop runs at
 // TARGET_FPS for smooth fades/touch; the accumulator advances the
 // scroll by pan_speed/TARGET_FPS pixels per frame (fractional).
-const float SPEED_LEVELS[] = {10, 30, 60, 120, 200};
+const float SPEED_LEVELS[] = { 10, 120, 240, 480, 800 };
 const int NUM_SPEEDS = sizeof(SPEED_LEVELS) / sizeof(SPEED_LEVELS[0]);
 const float TARGET_FPS = 50;
 
@@ -66,7 +66,7 @@ const float HOLD_BLACK_S = 1.0;
 
 // Steady-state backlight levels (0.0-1.0); each screen touch cycles to the
 // next, starting on the first. Fades ramp between black and the current level.
-const float BRIGHTNESS_LEVELS[] = {0.1, 0.20, 0.75, 1.0};
+const float BRIGHTNESS_LEVELS[] = { 0.1, 0.20, 0.75, 1.0 };
 const int NUM_BRIGHTNESS = sizeof(BRIGHTNESS_LEVELS) / sizeof(BRIGHTNESS_LEVELS[0]);
 
 // Scroll register direction per MADCTL line order: landscape (0xA8)
@@ -79,6 +79,10 @@ const int H = 240;
 
 // Number of bytes per column.
 const uint32_t COL_BYTES = H * 2;
+
+// Most columns scrolled in a single frame. Must be at least the top
+// SPEED_LEVELS entry / TARGET_FPS, rounded up; faster speeds are capped.
+const int MAX_COLS_PER_FRAME = 24;
 
 // Backlight PWM: 120 MHz GCLK0 / 4800 = 25 kHz, ~12 bits of duty range.
 const uint32_t BL_PERIOD = 4800;
@@ -93,30 +97,30 @@ const uint8_t INIT[] = {
   0xCB, 5, 0, 0x39, 0x2C, 0x00, 0x34, 0x02,
   0xF7, 1, 0, 0x20,
   0xEA, 2, 0, 0x00, 0x00,
-  0xC0, 1, 0, 0x23,              // Power control VRH
-  0xC1, 1, 0, 0x10,              // Power control SAP/BT
-  0xC5, 2, 0, 0x3E, 0x28,        // VCM control
-  0xC7, 1, 0, 0x86,              // VCM control 2
+  0xC0, 1, 0, 0x23,        // Power control VRH
+  0xC1, 1, 0, 0x10,        // Power control SAP/BT
+  0xC5, 2, 0, 0x3E, 0x28,  // VCM control
+  0xC7, 1, 0, 0x86,        // VCM control 2
   // MADCTL: BGR color order, landscape orientation.
   0x36, 1, 0, 0xA8,
-  0x37, 2, 0, 0x00, 0x00,        // Scroll start = 0
-  0x3A, 1, 0, 0x55,              // 16 bits per pixel
-  0xB1, 2, 0, 0x00, 0x18,        // Frame rate control
+  0x37, 2, 0, 0x00, 0x00,  // Scroll start = 0
+  0x3A, 1, 0, 0x55,        // 16 bits per pixel
+  0xB1, 2, 0, 0x00, 0x18,  // Frame rate control
   // Widen the vertical porches so the blanking window after each TE
   // pulse is long enough (~2.5 ms) to bump the scroll register and
   // write a full column before the panel starts scanning again.
   0xB5, 4, 0, 0x10, 0x30, 0x0A, 0x14,  // VFP=16, VBP=48 lines
-  0x35, 1, 0, 0x00,              // Tearing-effect line on (V-blank pulses only)
-  0xB6, 3, 0, 0x08, 0xA2, 0x27,  // Display function control
-  0xF2, 1, 0, 0x00,              // 3Gamma off
-  0x26, 1, 0, 0x01,              // Gamma curve
+  0x35, 1, 0, 0x00,                    // Tearing-effect line on (V-blank pulses only)
+  0xB6, 3, 0, 0x08, 0xA2, 0x27,        // Display function control
+  0xF2, 1, 0, 0x00,                    // 3Gamma off
+  0x26, 1, 0, 0x01,                    // Gamma curve
   0xE0, 15, 0, 0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08, 0x4E, 0xF1,
-               0x37, 0x07, 0x10, 0x03, 0x0E, 0x09, 0x00,
+  0x37, 0x07, 0x10, 0x03, 0x0E, 0x09, 0x00,
   0xE1, 15, 0, 0x00, 0x0E, 0x14, 0x03, 0x11, 0x07, 0x31, 0xC1,
-               0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36, 0x0F,
+  0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36, 0x0F,
   0x33, 6, 0, 0x00, 0x00, 0x01, 0x40, 0x00, 0x00,  // Scroll area = full 320 lines
-  0x11, 0, 120,                  // Exit sleep
-  0x29, 0, 120,                  // Display on
+  0x11, 0, 120,                                    // Exit sleep
+  0x29, 0, 120,                                    // Display on
 };
 
 Adafruit_ILI9341 tft(tft8bitbus, PIN_TFT_D0, PIN_TFT_WR, PIN_TFT_RS,
@@ -124,8 +128,8 @@ Adafruit_ILI9341 tft(tft8bitbus, PIN_TFT_D0, PIN_TFT_WR, PIN_TFT_RS,
 SdFat sd;
 File32 data;
 
-// One column of pixels, reused for every read.
-uint16_t colbuf[H];
+// A frame's worth of entering columns, reused for every read.
+uint16_t colbuf[MAX_COLS_PER_FRAME][H];
 
 uint32_t total_cols;
 uint32_t max_pos;
@@ -176,19 +180,19 @@ void setScroll() {
   tft.scrollTo(scroll);
 }
 
-// Read one strip column from disk into the column buffer.
-void loadColumn(uint32_t world_col) {
+// Read count consecutive strip columns from disk into the column buffer.
+void loadColumns(uint32_t world_col, int count) {
   data.seekSet(world_col * COL_BYTES);
-  data.read(colbuf, COL_BYTES);
+  data.read(colbuf, count * COL_BYTES);
 }
 
-// Write the column buffer into panel memory so that it appears at
+// Write one buffered column into panel memory so that it appears at
 // screen_x under the current scroll value.
-void blitColumn(int screen_x) {
+void blitColumn(int screen_x, uint16_t *pixels) {
   int xw = wrap(screen_x + SCROLL_DIR * scroll);
   tft.startWrite();
   tft.setAddrWindow(xw, 0, 1, H);
-  tft.writePixels(colbuf, H, true, true);  // file is already big-endian
+  tft.writePixels(pixels, H, true, true);  // file is already big-endian
   tft.endWrite();
 }
 
@@ -323,8 +327,8 @@ void loop() {
   // Draw the starting screenful while the backlight is dark, then run
   // the strip once, scrolling in one direction only.
   for (int x = 0; x < W; x++) {
-    loadColumn(x);
-    blitColumn(x);
+    loadColumns(x, 1);
+    blitColumn(x, colbuf[0]);
   }
 
   // Per-pass state: the strip column at the screen's left edge, plus
@@ -343,26 +347,25 @@ void loop() {
       // Convert the fractional progress to an integer number of pixels.
       uint32_t delta = (uint32_t)sub_pos;
       sub_pos -= delta;
+      delta = min(delta, (uint32_t)MAX_COLS_PER_FRAME);
       delta = min(delta, max_pos - pos);
       pos += delta;
 
-      // Blit the columns entering on the right.
-      bool first = true;
-      for (int x = W - delta; x < W; x++) {
-        // Read from the SD card before syncing, so the blanking window
-        // is spent only on fast bus writes.
-        loadColumn(pos + x);
-        if (first) {
-          // Scroll bumps latch at the frame boundary but writes land
-          // immediately, so until then the entering column's line is
-          // still mapped to the exiting edge. Writing inside vertical
-          // blanking keeps the sweep from flashing it there.
-          waitForBlanking();
-          scroll = wrap(scroll + SCROLL_DIR * (int)delta);
-          setScroll();
-          first = false;
-        }
-        blitColumn(x);
+      // Read all the columns entering on the right before syncing, so
+      // the blanking window is spent only on fast bus writes. An SD read
+      // between writes would let the panel scan the entering lines while
+      // they still hold the columns that just left the left edge.
+      loadColumns(pos + W - delta, delta);
+
+      // Scroll bumps latch at the frame boundary but writes land
+      // immediately, so until then the entering lines are still mapped
+      // to the exiting edge. Writing inside vertical blanking keeps the
+      // sweep from flashing them there.
+      waitForBlanking();
+      scroll = wrap(scroll + SCROLL_DIR * (int)delta);
+      setScroll();
+      for (uint32_t i = 0; i < delta; i++) {
+        blitColumn(W - delta + i, colbuf[i]);
       }
     }
 
