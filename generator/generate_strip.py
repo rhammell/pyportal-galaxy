@@ -16,7 +16,7 @@ Outputs, both written to output/:
                 misordered chunk anywhere in the file
 
 Usage:
-    python generator/generate_strip.py                    # Andromeda, defaults
+    python generator/generate_strip.py                    # Pandora's Cluster, defaults
     python generator/generate_strip.py --list             # show all sources
     python generator/generate_strip.py --source carina
     
@@ -90,19 +90,6 @@ class Source:
 # Every URL here was confirmed to return the stated file. Sizes in the
 # comments are the download, not the decoded size in memory.
 SOURCES: dict[str, Source] = {
-    "andromeda": Source(
-        title="M31 PHAT+PHAST",
-        telescope="Hubble ACS/WFC3",
-        width=42208,
-        height=9870,
-        url=(
-            "https://mast.stsci.edu/api/latest/Download/file?uri=mast:OPO/"
-            "product/STSCI_PR_2025-005/STSCI-H-p25005a-f-42208x9870.tif"
-        ),
-        filename="m31_phat_phast_42208x9870.tif",
-        credit="NASA, ESA, B. Williams (UW), Z. Chen (UW), L. C. Johnson (Northwestern)",
-        note="993 MB. 4.3:1 -- already strip-shaped, so one pass runs the whole disk.",
-    ),
     "carina": Source(
         title="Cosmic Cliffs, NGC 3324",
         telescope="JWST NIRCam",
@@ -126,6 +113,37 @@ SOURCES: dict[str, Source] = {
         credit="ESA/Webb, NASA, CSA, STScI",
         note="125 MB.",
     ),
+    "pandora": Source(
+        title="Pandora's Cluster, Abell 2744",
+        telescope="JWST NIRCam",
+        width=17644,
+        height=13422,
+        url=(
+            "https://assets.science.nasa.gov/content/dam/science/missions/webb/"
+            "science/2023/02/STScI-01GQQF9WVPFVMCVHRZY54N2TAR.png/jcr:content/"
+            "renditions/Full%20Res%20(For%20Print).tif"
+        ),
+        filename="pandora_abell2744_17644x13422.tif",
+        credit="NASA, ESA, CSA, Ivo Labbe (Swinburne), Rachel Bezanson "
+               "(University of Pittsburgh); Image Processing: Alyssa Pagan (STScI)",
+        note="178 MB. Deep field behind a lensing galaxy cluster.",
+    ),
+    "jades": Source(
+        title="JADES, GOODS-South",
+        telescope="JWST NIRCam",
+        width=12097,
+        height=8482,
+        url=(
+            "https://assets.science.nasa.gov/content/dam/science/missions/webb/"
+            "science/2023/06/STScI-01H1Q2DKR7FRQAMDGBGCDAMSPX.png/jcr:content/"
+            "renditions/Full%20Res%20(For%20Print).tif"
+        ),
+        filename="jades_goods_south_12097x8482.tif",
+        credit="NASA, ESA, CSA, Brant Robertson (UC Santa Cruz), Ben Johnson (CfA), "
+               "Sandro Tacchella (Cambridge), Marcia Rieke (University of Arizona), "
+               "Daniel Eisenstein (CfA); Image Processing: Alyssa Pagan (STScI)",
+        note="127 MB. Deep field of more than 45,000 galaxies.",
+    ),
     "vista": Source(
         title="Milky Way Centre, 40K reduction",
         telescope="ESO VISTA",
@@ -148,10 +166,27 @@ SOURCES: dict[str, Source] = {
     ),
 }
 
-DEFAULT_SOURCE = "andromeda"
+DEFAULT_SOURCE = "pandora"
 
 
 # --------------------------------------------------------------- download
+
+
+def remote_size(url: str) -> int:
+    """Size of the remote file in bytes, or 0 if the server won't say.
+
+    Some servers (science.nasa.gov assets) answer HEAD with 404 while
+    serving GET normally, so fall back to a one-byte ranged GET."""
+    head = requests.head(url, allow_redirects=True, timeout=60)
+    if head.ok:
+        return int(head.headers.get("Content-Length", 0))
+    resp = requests.get(url, headers={"Range": "bytes=0-0"}, stream=True, timeout=60)
+    resp.raise_for_status()
+    resp.close()
+    content_range = resp.headers.get("Content-Range", "")
+    if "/" in content_range:
+        return int(content_range.rsplit("/", 1)[1])
+    return int(resp.headers.get("Content-Length", 0))
 
 
 def ensure_source(src: Source) -> Path:
@@ -162,9 +197,7 @@ def ensure_source(src: Source) -> Path:
     CACHE_DIR.mkdir(exist_ok=True)
     dest = CACHE_DIR / src.filename
 
-    head = requests.head(src.url, allow_redirects=True, timeout=60)
-    head.raise_for_status()
-    total = int(head.headers.get("Content-Length", 0))
+    total = remote_size(src.url)
     have = dest.stat().st_size if dest.exists() else 0
 
     if total and have == total:

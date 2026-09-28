@@ -17,16 +17,17 @@ The strip is built by `generator/generate_strip.py`, which runs on your computer
 The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands that fall on black padding at the edges of non-rectangular images are detected and skipped. Within each band, leading and trailing black columns are trimmed so scrolling jumps straight to the content. A short fade-to-black transition (320 columns by default, adjustable with `--fade-cols`) separates each band.
 
 ```bash
-.venv/bin/python generator/generate_strip.py --source andromeda
+.venv/bin/python generator/generate_strip.py --source pandora
 ```
 
 Run times at the slowest pan speed (10 px/s):
 
 | Source | Bands | .dat Size | Scroll Time |
 | --- | --- | --- | --- |
+| `jades` | 36 | 214 MB | 12.4 hr |
 | `carina` | 36 | 257 MB | 14.9 hr |
 | `tarantula` | 36 | 245 MB | 14.9 hr |
-| `andromeda` | 35 | 616 MB | 1.6 days |
+| `pandora` | 56 | 483 MB | 1.2 days |
 | `vista` | 126 | 2.3 GB | 5.9 days |
 | `rubin` | 92 | 4.0 GB | 10.4 days |
 
@@ -34,7 +35,7 @@ Rubin reaches the FAT32 4 GB file size limit after 92 of its 215 bands, so the o
 
 | Flag | Effect |
 | --- | --- |
-| `--source` | Which mosaic to use. Run with `--list` to see all five. |
+| `--source` | Which mosaic to use. Run with `--list` to see all six. |
 | `--gamma` | Brighten midtones before RGB565 conversion. Values above 1.0 lift faint nebulosity. |
 
 #### Preview
@@ -54,21 +55,22 @@ Touch controls split the screen in half:
 
 ## Image Sources
 
-All five are public mosaics from named observatories, verified downloadable. Sizes are the download, not the decoded size in memory.
+All six are public mosaics from named observatories, verified downloadable. Sizes are the download, not the decoded size in memory.
 
 | Source | Object | Telescope | Pixels | Download |
 | --- | --- | --- | --- | --- |
-| `andromeda` | M31, PHAT+PHAST | Hubble | 42,208 x 9,870 | 993 MB |
 | `carina` | Cosmic Cliffs, NGC 3324 | JWST | 14,575 x 8,441 | 137 MB |
 | `tarantula` | 30 Doradus | JWST | 14,557 x 8,418 | 125 MB |
+| `pandora` | Pandora's Cluster, Abell 2744 | JWST | 17,644 x 13,422 | 178 MB |
+| `jades` | GOODS-South deep field | JWST | 12,097 x 8,482 | 127 MB |
 | `vista` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
 | `rubin` | Virgo Cluster | Rubin | 97,943 x 51,536 | 14.1 GB |
 
-Andromeda is the natural default because its 4.3:1 aspect ratio means it translates into a nearly continuous strip with very few empty edges to trim. Regardless of the original aspect ratio, every source produces a complete traversal of the mosaic.
+Pandora's Cluster is the default because it gives the longest scroll of the sources that need no extra dependencies, and its fully rectangular frame leaves no empty edges to trim. Regardless of the original aspect ratio, every source produces a complete traversal of the mosaic.
 
 ### A note on memory
 
-Pillow decodes an entire image before cropping, which costs `width x height x 3` bytes: 1.2 GiB for Andromeda, but 15 GiB for Rubin. The two sources above a gigapixel (`vista`, `rubin`) therefore need [pyvips](https://github.com/libvips/pyvips), which reads only the rows each band covers. The generator uses pyvips automatically when it is importable and falls back to Pillow otherwise, so the smaller sources need nothing extra.
+Pillow decodes an entire image before cropping, which costs `width x height x 3` bytes: 0.7 GiB for Pandora's Cluster, but 15 GiB for Rubin. The two sources above a gigapixel (`vista`, `rubin`) therefore need [pyvips](https://github.com/libvips/pyvips), which reads only the rows each band covers. The generator uses pyvips automatically when it is importable and falls back to Pillow otherwise, so the smaller sources need nothing extra.
 
 ### FAT32 file size limit
 
@@ -104,7 +106,7 @@ brew install vips          # macOS; see libvips docs for other platforms
 ### 2. Generate a strip
 
 ```bash
-.venv/bin/python generator/generate_strip.py --source andromeda
+.venv/bin/python generator/generate_strip.py --source pandora
 ```
 
 The mosaic is downloaded on first run and cached in `generator/cache/`. Check the preview PNG in `generator/output/` before deploying.
@@ -114,7 +116,7 @@ The mosaic is downloaded on first run and cached in `generator/cache/`. Check th
 Copy the strip data to the root of a FAT32-formatted micro SD card (e.g. volume name GALAXY), renaming it to `galaxy.dat`, and insert the card into the PyPortal's SD slot:
 
 ```bash
-cp generator/output/andromeda.dat /Volumes/GALAXY/galaxy.dat
+cp generator/output/pandora.dat /Volumes/GALAXY/galaxy.dat
 ```
 
 Upload the firmware with the Arduino IDE. One-time setup:
@@ -129,7 +131,8 @@ The PyPortal starts scrolling as soon as the upload finishes. The SD card must b
 
 ## Image Credits
 
-- **Andromeda** — NASA, ESA, B. Williams (UW), Z. Chen (UW), L. C. Johnson (Northwestern)
 - **Carina / Tarantula** — NASA, ESA, CSA, STScI (ESA/Webb for Tarantula)
+- **Pandora's Cluster** — NASA, ESA, CSA, Ivo Labbe (Swinburne), Rachel Bezanson (University of Pittsburgh); Image Processing: Alyssa Pagan (STScI)
+- **JADES** — NASA, ESA, CSA, Brant Robertson (UC Santa Cruz), Ben Johnson (CfA), Sandro Tacchella (Cambridge), Marcia Rieke (University of Arizona), Daniel Eisenstein (CfA); Image Processing: Alyssa Pagan (STScI)
 - **Milky Way centre** — ESO/VVV Survey/D. Minniti. Acknowledgement: Ignacio Toledo, Martin Kornmesser
 - **Virgo Cluster** — RubinObs/NOIRLab/SLAC/DOE/NSF/AURA
