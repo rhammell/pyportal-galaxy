@@ -22,8 +22,8 @@ Usage:
     
 
 Source images are downloaded once into cache/ (resumable) and reused.
-Then copy output/<name>.dat to the SD card as galaxy.dat, and
-firmware/code.py to the CIRCUITPY drive.
+Then copy output/<name>.dat to the SD card as galaxy.dat, and upload
+firmware/pyportal_galaxy/ to the PyPortal from the Arduino IDE.
 """
 
 import argparse
@@ -41,7 +41,7 @@ from PIL import Image
 # than legitimate ones. Every source here is from a named observatory.
 Image.MAX_IMAGE_PIXELS = None
 
-# Fixed by firmware/code.py: a 240-px-tall strip at 2 bytes per pixel.
+# Fixed by the firmware: a 240-px-tall strip at 2 bytes per pixel.
 HEIGHT = 240
 COL_BYTES = HEIGHT * 2
 
@@ -63,8 +63,8 @@ FADE_COLS = 320
 # whose mean grey level falls below this are treated as empty padding.
 CONTENT_THRESHOLD = 10
 
-# FAT32 maximum file size. CircuitPython's VfsFat only supports FAT32,
-# so the .dat must stay under this limit.
+# FAT32 maximum file size. The firmware reads the card as FAT32, so the
+# .dat must stay under this limit.
 FAT32_MAX_BYTES = 4 * 1024**3  # 4 GiB
 
 HERE = Path(__file__).parent
@@ -540,7 +540,7 @@ def run_generator(args, src, source_file, dat_path, png_path) -> None:
     print(
         f"\nCheck {png_path.name} before deploying."
         f"\nThen copy {dat_path.name} to the SD card as galaxy.dat, and "
-        f"firmware/code.py to CIRCUITPY."
+        f"upload firmware/pyportal_galaxy/ from the Arduino IDE."
     )
 
 

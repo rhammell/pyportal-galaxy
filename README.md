@@ -43,9 +43,9 @@ A preview PNG is written alongside the data file. It is decoded back out of the 
 
 ### Image Display
 
-The strip is displayed by `firmware/code.py`, which runs on the PyPortal and reads `galaxy.dat` from an SD card in the card slot. Since the data file is far larger than the PyPortal's RAM, it is never loaded whole — the script streams it one 480-byte column at a time into a reusable buffer, so memory use is constant no matter how long the strip is.
+The strip is displayed by the Arduino sketch `firmware/pyportal_galaxy/pyportal_galaxy.ino`, which runs on the PyPortal and reads `galaxy.dat` from an SD card in the card slot. Since the data file is far larger than the PyPortal's RAM, it is never loaded whole — the sketch streams it one 480-byte column at a time into a reusable buffer, so memory use is constant no matter how long the strip is.
 
-For smooth animation, the script drives the ILI9341 display controller directly and uses its hardware scrolling: after the first screenful is drawn, each frame only bumps the scroll register and writes the newly exposed columns, synced to vertical blanking for tear-free panning. Each completed pass fades the backlight out, resets, and fades back in.
+For smooth animation, the sketch drives the ILI9341 display controller directly and uses its hardware scrolling: after the first screenful is drawn, each frame only bumps the scroll register and writes the newly exposed columns, synced to vertical blanking for tear-free panning. Each completed pass fades the backlight out, resets, and fades back in.
 
 Touch controls split the screen in half:
 
@@ -77,7 +77,7 @@ The PyPortal's SD card must be FAT32 formatted, which imposes a 4 GB maximum fil
 ## Repo Layout
 
 ```text
-firmware/     code.py, copied to the CIRCUITPY drive
+firmware/     pyportal_galaxy/ Arduino sketch, uploaded to the PyPortal
 generator/    strip generator + requirements
               cache/   downloaded source mosaics (gitignored)
               output/  generated .dat and .png files (gitignored)
@@ -117,14 +117,15 @@ Copy the strip data to the root of a FAT32-formatted micro SD card (e.g. volume 
 cp generator/output/andromeda.dat /Volumes/GALAXY/galaxy.dat
 ```
 
-Copy the firmware to the PyPortal's CIRCUITPY drive, and create the `sd` mount folder (one-time setup):
+Upload the firmware with the Arduino IDE. One-time setup:
 
-```bash
-cp firmware/code.py /Volumes/CIRCUITPY/
-mkdir -p /Volumes/CIRCUITPY/sd
-```
+1. In **Settings**, add `https://adafruit.github.io/arduino-board-index/package_adafruit_index.json` to "Additional boards manager URLs".
+2. In **Boards Manager**, install **Arduino SAMD Boards**, then **Adafruit SAMD Boards**.
+3. In **Library Manager**, install **Adafruit ILI9341**, **Adafruit GFX Library**, and **SdFat - Adafruit Fork**.
 
-The PyPortal auto-reloads and starts scrolling. The SD card must be inserted before the PyPortal powers on, since the card is mounted at startup.
+Then open `firmware/pyportal_galaxy/pyportal_galaxy.ino`, select **Tools → Board → Adafruit SAMD → Adafruit PyPortal M4**, pick the PyPortal's port, and click **Upload**. If the board is still running CircuitPython, or the port doesn't appear, double-tap the reset button to enter the bootloader first.
+
+The PyPortal starts scrolling as soon as the upload finishes. The SD card must be inserted before the PyPortal powers on, since the card is mounted at startup. The measured frame rate, and any SD card or file errors, are printed to the Serial Monitor at 115200 baud.
 
 ## Image Credits
 

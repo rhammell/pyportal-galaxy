@@ -7,6 +7,9 @@ __pycache__/
 *.pyc
 .DS_Store
 
+# Arduino exported binaries (Sketch > Export Compiled Binary)
+firmware/**/build/
+
 # FreeCAD backup and temp files
 *.FCBak
 *.FCStd1
