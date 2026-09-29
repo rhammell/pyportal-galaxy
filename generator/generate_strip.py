@@ -62,12 +62,9 @@ PREVIEW_MAX_COLS = 20000
 CHUNK_COLS = 4096
 
 # Screen width in columns. The firmware scrolls each band separately, so
-# a band must be wider than one screenful to have anything to scroll.
+# a band truncated at the FAT32 limit must still be wider than one
+# screenful to have anything to scroll.
 SCREEN_COLS = 320
-
-# Brightness threshold (0-255) for content detection. Columns or bands
-# whose mean grey level falls below this are treated as empty padding.
-CONTENT_THRESHOLD = 10
 
 # FAT32 maximum file size. The firmware reads the card as FAT32, so the
 # .dat must stay under this limit.
@@ -317,28 +314,6 @@ def crop_band_at(img, y0: int, band_h: int, src_w: int, src_h: int,
     return band
 
 
-def find_content_bounds(band: Image.Image, threshold: int = CONTENT_THRESHOLD):
-    """Find the horizontal extent of non-black content in a band.
-
-    Converts to greyscale, thresholds, and uses getbbox() to find the
-    bounding box of bright pixels. Returns (x_start, x_end) with x_end
-    exclusive, or None if the band is empty.
-    """
-    grey = band.convert("L")
-    mask = grey.point(lambda p: 255 if p > threshold else 0)
-    bbox = mask.getbbox()
-    if bbox is None:
-        return None
-    return bbox[0], bbox[2]
-
-
-def band_mean_brightness(band: Image.Image) -> float:
-    """Mean grey level of the band (0-255)."""
-    from PIL import ImageStat
-    stat = ImageStat.Stat(band.convert("L"))
-    return stat.mean[0]
-
-
 # --------------------------------------------------------------- packing
 
 
@@ -512,28 +487,7 @@ def run_generator(args, src, source_file, dat_path, idx_path, png_path) -> None:
                 print(f"  {label}: out of bounds, skipping")
                 continue
 
-            mean_br = band_mean_brightness(band)
-            if mean_br < CONTENT_THRESHOLD:
-                print(f"  {label}: empty (mean brightness {mean_br:.1f}), skipping")
-                continue
-
-            bounds = find_content_bounds(band)
-            if bounds is None:
-                print(f"  {label}: no content after threshold, skipping")
-                continue
-
-            x_start, x_end = bounds
-            if x_start > 0 or x_end < band.width:
-                band = band.crop((x_start, 0, x_end, HEIGHT))
-                print(f"  {label}: trimmed to columns {x_start:,}-{x_end:,} "
-                      f"({band.width:,} cols)")
-            else:
-                print(f"  {label}: {band.width:,} cols")
-
-            if band.width <= SCREEN_COLS:
-                print(f"  {label}: narrower than the screen, skipping")
-                continue
-
+            print(f"  {label}: {band.width:,} cols")
             band = apply_gamma(band, args.gamma)
 
             # Stop before the .dat would exceed FAT32's file size limit.
@@ -554,7 +508,7 @@ def run_generator(args, src, source_file, dat_path, idx_path, png_path) -> None:
         img.close()
 
     if not band_index:
-        sys.exit("No bands with content found. The mosaic may be empty.")
+        sys.exit("No bands were written.")
 
     with open(idx_path, "wb") as f:
         for start, width in band_index:

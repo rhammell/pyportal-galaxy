@@ -1,6 +1,6 @@
 # pyportal-galaxy
 
-A visualization for the Adafruit PyPortal that scrolls through large astronomical mosaics, producing a slow, continuous journey across a galaxy or nebula. The generator tiles 240-pixel-tall bands from top to bottom across an entire mosaic, trims away empty regions, and stitches the bands into a single data file that can take days of continuous scrolling to complete. At the slowest pan speed, a strip of the Rubin Observatory's Virgo Cluster mosaic takes over 10 days to traverse.
+A visualization for the Adafruit PyPortal that scrolls through large astronomical mosaics, producing a slow, continuous journey across a galaxy or nebula. The generator tiles 240-pixel-tall bands from top to bottom across an entire mosaic and stitches them into a single data file that can take days of continuous scrolling to complete. At the slowest pan speed, a strip of the Rubin Observatory's Virgo Cluster mosaic takes over 10 days to traverse.
 
 This repository contains the source code for generating and displaying the galaxy imagery, and CAD files for a 3D-printable PyPortal stand.
 
@@ -14,7 +14,7 @@ Displaying the strip relies on two separate processes: cutting strips out of a m
 
 The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/<source>.dat`, along with a small band index, `<source>.idx`.
 
-The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands that fall on black padding at the edges of non-rectangular images are detected and skipped. Within each band, leading and trailing black columns are trimmed so scrolling jumps straight to the content. Bands are stored back to back, and the index records where each one starts and how wide it is, so the display can fade between them.
+The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands are stored back to back, and the index records where each one starts and how wide it is, so the display can fade between them.
 
 ```bash
 .venv/bin/python generator/generate_strip.py --source pandora
@@ -68,7 +68,7 @@ All six are public mosaics from named observatories, verified downloadable. Size
 | `vista` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
 | `rubin` | Virgo Cluster | Rubin | 97,943 x 51,536 | 14.1 GB |
 
-Pandora's Cluster is the default because it gives the longest scroll of the sources that need no extra dependencies, and its fully rectangular frame leaves no empty edges to trim. Regardless of the original aspect ratio, every source produces a complete traversal of the mosaic.
+Pandora's Cluster is the default because it gives the longest scroll of the sources that need no extra dependencies. Regardless of the original aspect ratio, every source produces a complete traversal of the mosaic.
 
 ### A note on memory
 
