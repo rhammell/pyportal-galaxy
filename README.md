@@ -12,7 +12,7 @@ Displaying the strip relies on two separate processes: cutting strips out of a m
 
 ### Image Generation
 
-The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/<source>.dat`, along with a small band index, `<source>.idx`.
+The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/galaxy.dat`, along with a small band index, `galaxy.idx`. Each run overwrites these files, so the data and index always match; since the mosaic stays cached, switching sources is just a rerun.
 
 The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands are stored back to back, and the index records where each one starts and how wide it is, so the display can fade between them.
 
@@ -37,6 +37,7 @@ Rubin reaches the FAT32 4 GB file size limit after 92 of its 215 bands, so the o
 | --- | --- |
 | `--source` | Which mosaic to use. Run with `--list` to see all six. |
 | `--gamma` | Brighten midtones before RGB565 conversion. Values above 1.0 lift faint nebulosity. |
+| `--name` | Output basename (default `galaxy`). Use another name to keep a strip without overwriting, then rename it to `galaxy.*` on the SD card. |
 
 #### Preview
 
@@ -84,8 +85,8 @@ The PyPortal's SD card must be FAT32 formatted, which imposes a 4 GB maximum fil
 firmware/     pyportal_galaxy/ Arduino sketch, uploaded to the PyPortal
 generator/    strip generator + requirements
               cache/   downloaded source mosaics (gitignored)
-              output/  generated .dat and .png files (gitignored)
-                       <source>.dat / .idx / .png — strip, band index, preview
+              output/  generated files (gitignored)
+                       galaxy.dat / .idx / .png — strip, band index, preview
 cad/          stand design (src/ = editable CAD, export/ = printable STL exports)
 ```
 
@@ -115,11 +116,10 @@ The mosaic is downloaded on first run and cached in `generator/cache/`. Check th
 
 ### 3. Deploy to hardware
 
-Copy the strip data and band index to the root of a FAT32-formatted micro SD card (e.g. volume name GALAXY), renaming them to `galaxy.dat` and `galaxy.idx`, and insert the card into the PyPortal's SD slot:
+Copy the strip data and band index to the root of a FAT32-formatted micro SD card (e.g. volume name GALAXY), and insert the card into the PyPortal's SD slot:
 
 ```bash
-cp generator/output/pandora.dat /Volumes/GALAXY/galaxy.dat
-cp generator/output/pandora.idx /Volumes/GALAXY/galaxy.idx
+cp generator/output/galaxy.dat generator/output/galaxy.idx /Volumes/GALAXY/
 ```
 
 Upload the firmware with the Arduino IDE. One-time setup:

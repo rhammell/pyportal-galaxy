@@ -5,7 +5,8 @@ deep-sky image and packs them into the raw format the PyPortal firmware
 streams. The mosaic is already a single continuous picture, so the
 generator only has to crop it.
 
-Outputs, all written to output/:
+Outputs, all written to output/ and overwritten on each run (use --name
+to keep several strips side by side):
 
   <name>.dat -- raw big-endian RGB565 pixels, column-major (each screen
                 column is one contiguous 480-byte record), with the bands
@@ -25,9 +26,8 @@ Usage:
     
 
 Source images are downloaded once into cache/ (resumable) and reused.
-Then copy output/<name>.dat and output/<name>.idx to the SD card as
-galaxy.dat and galaxy.idx, and upload firmware/pyportal_galaxy/ to the
-PyPortal from the Arduino IDE.
+Then copy output/galaxy.dat and output/galaxy.idx to the SD card, and
+upload firmware/pyportal_galaxy/ to the PyPortal from the Arduino IDE.
 """
 
 import argparse
@@ -446,7 +446,9 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="brighten midtones before RGB565; >1 lifts faint nebulosity",
     )
-    p.add_argument("--name", help="output basename (default: the source key)")
+    p.add_argument(
+        "--name", default="galaxy", help="output basename; the firmware reads galaxy.*"
+    )
     return p.parse_args()
 
 
@@ -525,9 +527,9 @@ def run_generator(args, src, source_file, dat_path, idx_path, png_path) -> None:
     print_run_times(total_cols)
     print(
         f"\nCheck {png_path.name} before deploying."
-        f"\nThen copy {dat_path.name} and {idx_path.name} to the SD card as "
-        f"galaxy.dat and galaxy.idx, and upload firmware/pyportal_galaxy/ "
-        f"from the Arduino IDE."
+        f"\nThen copy {dat_path.name} and {idx_path.name} to the SD card"
+        f"{'' if dat_path.stem == 'galaxy' else ' as galaxy.dat and galaxy.idx'}, "
+        f"and upload firmware/pyportal_galaxy/ from the Arduino IDE."
     )
 
 
@@ -538,7 +540,7 @@ def main() -> None:
         return
 
     src = SOURCES[args.source]
-    name = args.name or args.source
+    name = args.name
     OUTPUT_DIR.mkdir(exist_ok=True)
     dat_path = OUTPUT_DIR / f"{name}.dat"
     idx_path = OUTPUT_DIR / f"{name}.idx"
