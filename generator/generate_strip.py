@@ -5,10 +5,13 @@ deep-sky image and packs them into the raw format the PyPortal firmware
 streams. The mosaic is already a single continuous picture, so the
 generator only has to crop it.
 
-Outputs, both written to output/:
+Outputs, all written to output/:
 
   <name>.dat -- raw big-endian RGB565 pixels, column-major (each screen
-                column is one contiguous 480-byte record)
+                column is one contiguous 480-byte record), with the bands
+                laid end to end
+  <name>.idx -- band index: one record per band of two little-endian
+                uint32 values, the band's first column and its width
   <name>.png -- a preview decoded back out of the .dat, downscaled to a
                 practical size. Because it is built from the actual
                 bytes the PyPortal will read, it shows the real RGB565
@@ -22,13 +25,15 @@ Usage:
     
 
 Source images are downloaded once into cache/ (resumable) and reused.
-Then copy output/<name>.dat to the SD card as galaxy.dat, and upload
-firmware/pyportal_galaxy/ to the PyPortal from the Arduino IDE.
+Then copy output/<name>.dat and output/<name>.idx to the SD card as
+galaxy.dat and galaxy.idx, and upload firmware/pyportal_galaxy/ to the
+PyPortal from the Arduino IDE.
 """
 
 import argparse
 import array
 import math
+import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,8 +61,9 @@ PREVIEW_MAX_COLS = 20000
 # Columns converted per block. Keeps memory flat and gives progress.
 CHUNK_COLS = 4096
 
-# Black columns inserted between bands in --full mode (one screenful).
-FADE_COLS = 320
+# Screen width in columns. The firmware scrolls each band separately, so
+# a band must be wider than one screenful to have anything to scroll.
+SCREEN_COLS = 320
 
 # Brightness threshold (0-255) for content detection. Columns or bands
 # whose mean grey level falls below this are treated as empty padding.
@@ -372,13 +378,6 @@ def pack_columns(band: Image.Image, out, label: str = "") -> int:
     return width
 
 
-def write_black_columns(out, n: int) -> None:
-    """Write n columns of black (zero) RGB565 pixels."""
-    black = b"\x00" * COL_BYTES
-    for _ in range(n):
-        out.write(black)
-
-
 def write_dat(band: Image.Image, dest: Path) -> int:
     """Pack a single band into a new .dat file. Returns total bytes."""
     with open(dest, "wb") as out:
@@ -489,10 +488,8 @@ def print_run_times(total_cols: int) -> None:
             print(f"  {speed:>3} px/s   {secs / 86400:.1f} days")
 
 
-def run_generator(args, src, source_file, dat_path, png_path) -> None:
+def run_generator(args, src, source_file, dat_path, idx_path, png_path) -> None:
     """Full-coverage mode: tile bands top-to-bottom across the mosaic."""
-    fade_cols = FADE_COLS
-
     img, src_w, src_h, is_pyvips = open_mosaic(source_file)
     band_h = HEIGHT
     n_bands = math.ceil(src_h / band_h)
@@ -501,7 +498,7 @@ def run_generator(args, src, source_file, dat_path, png_path) -> None:
           f"{src_w:,} x {src_h:,} ")
 
     total_cols = 0
-    bands_written = 0
+    band_index = []  # (first column, width) of each band written
     max_cols = FAT32_MAX_BYTES // COL_BYTES
 
     with open(dat_path, "wb") as out:
@@ -533,47 +530,50 @@ def run_generator(args, src, source_file, dat_path, png_path) -> None:
             else:
                 print(f"  {label}: {band.width:,} cols")
 
+            if band.width <= SCREEN_COLS:
+                print(f"  {label}: narrower than the screen, skipping")
+                continue
+
             band = apply_gamma(band, args.gamma)
 
-            # Check whether this band (plus fade) would exceed FAT32.
-            needed = band.width + (fade_cols if bands_written > 0 else 0)
-            if total_cols + needed > max_cols:
-                remaining = max_cols - total_cols
-                if bands_written > 0:
-                    remaining -= fade_cols
-                if remaining <= 0:
+            # Stop before the .dat would exceed FAT32's file size limit.
+            remaining = max_cols - total_cols
+            if band.width > remaining:
+                if remaining <= SCREEN_COLS:
                     print(f"\n  FAT32 limit reached ({FAT32_MAX_BYTES / 1e9:.1f} GB). "
-                          f"Stopping after {bands_written} bands.")
+                          f"Stopping after {len(band_index)} bands.")
                     break
                 band = band.crop((0, 0, remaining, HEIGHT))
                 print(f"  truncated to {remaining:,} cols (FAT32 limit)")
 
-            if bands_written > 0:
-                write_black_columns(out, fade_cols)
-                total_cols += fade_cols
-
             cols = pack_columns(band, out, label=label)
+            band_index.append((total_cols, cols))
             total_cols += cols
-            bands_written += 1
 
     if not is_pyvips:
         img.close()
 
-    if bands_written == 0:
+    if not band_index:
         sys.exit("No bands with content found. The mosaic may be empty.")
+
+    with open(idx_path, "wb") as f:
+        for start, width in band_index:
+            f.write(struct.pack("<II", start, width))
 
     size = total_cols * COL_BYTES
     factor = build_preview(dat_path, png_path, total_cols)
 
-    print(f"\nFull coverage: {bands_written} bands, "
+    print(f"\nFull coverage: {len(band_index)} bands, "
           f"{total_cols:,} total columns")
     print(f"Wrote {dat_path} ({size / 1e6:.1f} MB)")
+    print(f"Wrote {idx_path} ({len(band_index)} bands)")
     print(f"Wrote {png_path} (preview{f', {factor}x downscaled' if factor > 1 else ''})")
     print_run_times(total_cols)
     print(
         f"\nCheck {png_path.name} before deploying."
-        f"\nThen copy {dat_path.name} to the SD card as galaxy.dat, and "
-        f"upload firmware/pyportal_galaxy/ from the Arduino IDE."
+        f"\nThen copy {dat_path.name} and {idx_path.name} to the SD card as "
+        f"galaxy.dat and galaxy.idx, and upload firmware/pyportal_galaxy/ "
+        f"from the Arduino IDE."
     )
 
 
@@ -587,6 +587,7 @@ def main() -> None:
     name = args.name or args.source
     OUTPUT_DIR.mkdir(exist_ok=True)
     dat_path = OUTPUT_DIR / f"{name}.dat"
+    idx_path = OUTPUT_DIR / f"{name}.idx"
     png_path = OUTPUT_DIR / f"{name}.png"
 
     print(f"{src.title} -- {src.telescope}")
@@ -594,7 +595,7 @@ def main() -> None:
 
     source_file = ensure_source(src)
 
-    run_generator(args, src, source_file, dat_path, png_path)
+    run_generator(args, src, source_file, dat_path, idx_path, png_path)
 
 
 if __name__ == "__main__":

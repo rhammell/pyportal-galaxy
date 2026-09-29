@@ -12,9 +12,9 @@ Displaying the strip relies on two separate processes: cutting strips out of a m
 
 ### Image Generation
 
-The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/<source>.dat`.
+The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/<source>.dat`, along with a small band index, `<source>.idx`.
 
-The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands that fall on black padding at the edges of non-rectangular images are detected and skipped. Within each band, leading and trailing black columns are trimmed so scrolling jumps straight to the content. A short fade-to-black transition (320 columns by default, adjustable with `--fade-cols`) separates each band.
+The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands that fall on black padding at the edges of non-rectangular images are detected and skipped. Within each band, leading and trailing black columns are trimmed so scrolling jumps straight to the content. Bands are stored back to back, and the index records where each one starts and how wide it is, so the display can fade between them.
 
 ```bash
 .venv/bin/python generator/generate_strip.py --source pandora
@@ -24,10 +24,10 @@ Run times at the slowest pan speed (10 px/s):
 
 | Source | Bands | .dat Size | Scroll Time |
 | --- | --- | --- | --- |
-| `jades` | 36 | 214 MB | 12.4 hr |
-| `carina` | 36 | 257 MB | 14.9 hr |
-| `tarantula` | 36 | 245 MB | 14.9 hr |
-| `pandora` | 56 | 483 MB | 1.2 days |
+| `jades` | 36 | 209 MB | 12.1 hr |
+| `carina` | 36 | 252 MB | 14.6 hr |
+| `tarantula` | 36 | 252 MB | 14.6 hr |
+| `pandora` | 56 | 474 MB | 1.1 days |
 | `vista` | 126 | 2.3 GB | 5.9 days |
 | `rubin` | 92 | 4.0 GB | 10.4 days |
 
@@ -46,7 +46,9 @@ A preview PNG is written alongside the data file. It is decoded back out of the 
 
 The strip is displayed by the Arduino sketch `firmware/pyportal_galaxy/pyportal_galaxy.ino`, which runs on the PyPortal and reads `galaxy.dat` from an SD card in the card slot. Since the data file is far larger than the PyPortal's RAM, it is never loaded whole — the sketch streams it one 480-byte column at a time into a reusable buffer, so memory use is constant no matter how long the strip is.
 
-For smooth animation, the sketch drives the ILI9341 display controller directly and uses its hardware scrolling: after the first screenful is drawn, each frame only bumps the scroll register and writes the newly exposed columns, synced to vertical blanking for tear-free panning. Each completed pass fades the backlight out, resets, and fades back in.
+For smooth animation, the sketch drives the ILI9341 display controller directly and uses its hardware scrolling: after the first screenful is drawn, each frame only bumps the scroll register and writes the newly exposed columns, synced to vertical blanking for tear-free panning.
+
+Transitions between bands are handled with the backlight. The sketch reads `galaxy.idx` at startup, then for each band it draws the first screenful while the backlight is off, fades in, scrolls to the end of the band, and fades out as the last screenful comes into view. A brief pause on black separates bands, with a longer one before the strip restarts from the top. If `galaxy.idx` is missing, the whole file is scrolled as a single band.
 
 Touch controls split the screen in half:
 
@@ -83,7 +85,7 @@ firmware/     pyportal_galaxy/ Arduino sketch, uploaded to the PyPortal
 generator/    strip generator + requirements
               cache/   downloaded source mosaics (gitignored)
               output/  generated .dat and .png files (gitignored)
-                       <source>.dat / .png       — generated strip
+                       <source>.dat / .idx / .png — strip, band index, preview
 cad/          stand design (src/ = editable CAD, export/ = printable STL exports)
 ```
 
@@ -113,10 +115,11 @@ The mosaic is downloaded on first run and cached in `generator/cache/`. Check th
 
 ### 3. Deploy to hardware
 
-Copy the strip data to the root of a FAT32-formatted micro SD card (e.g. volume name GALAXY), renaming it to `galaxy.dat`, and insert the card into the PyPortal's SD slot:
+Copy the strip data and band index to the root of a FAT32-formatted micro SD card (e.g. volume name GALAXY), renaming them to `galaxy.dat` and `galaxy.idx`, and insert the card into the PyPortal's SD slot:
 
 ```bash
 cp generator/output/pandora.dat /Volumes/GALAXY/galaxy.dat
+cp generator/output/pandora.idx /Volumes/GALAXY/galaxy.idx
 ```
 
 Upload the firmware with the Arduino IDE. One-time setup:

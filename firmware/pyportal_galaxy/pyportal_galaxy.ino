@@ -21,9 +21,14 @@
   Touching the left half of the screen cycles brightness; the right half
   cycles pan speed.
 
+  Each band of the strip is its own pass: the backlight fades up, the band
+  scrolls past, and the backlight fades out before the next band is drawn.
+
   Requires galaxy.dat in the SD card root: raw big-endian RGB565 pixels,
-  column-major (each column is one contiguous 480-byte record), produced
-  by generator/generate_strip.py.
+  column-major (each column is one contiguous 480-byte record), with the
+  bands laid end to end. galaxy.idx lists each band as two little-endian
+  uint32 values, first column and width; without it the whole file is
+  treated as one band. Both are produced by generator/generate_strip.py.
 
   Board: Adafruit PyPortal M4 (Adafruit SAMD Boards package).
   Libraries: Adafruit ILI9341, Adafruit GFX, SdFat - Adafruit Fork.
@@ -48,8 +53,12 @@
 #define PIN_TOUCH_YU A6
 #define PIN_TOUCH_XR A7
 
-// Strip image data, read from the SD card.
+// Strip image data and band index, read from the SD card.
 #define DATA_PATH "/galaxy.dat"
+#define INDEX_PATH "/galaxy.idx"
+
+// Most bands read from the index; any beyond this are ignored.
+const int MAX_BANDS = 256;
 
 // Pan speed in pixels per second and loop rate. The loop runs at
 // TARGET_FPS for smooth fades/touch; the accumulator advances the
@@ -58,10 +67,11 @@ const float SPEED_LEVELS[] = { 10, 120, 240, 480, 800 };
 const int NUM_SPEEDS = sizeof(SPEED_LEVELS) / sizeof(SPEED_LEVELS[0]);
 const float TARGET_FPS = 50;
 
-// Backlight fade durations at the start and end of each pass, and the
-// pause on black in between passes.
+// Backlight fade durations at the start and end of each band, the pause
+// on black between bands, and the longer pause before the strip restarts.
 const float FADE_IN_S = 0.5;
 const float FADE_OUT_S = 0.5;
+const float BAND_HOLD_S = 0.25;
 const float HOLD_BLACK_S = 1.0;
 
 // Steady-state backlight levels (0.0-1.0); each screen touch cycles to the
@@ -131,9 +141,17 @@ File32 data;
 // A frame's worth of entering columns, reused for every read.
 uint16_t colbuf[MAX_COLS_PER_FRAME][H];
 
+struct Band {
+  uint32_t start;  // first column in galaxy.dat
+  uint32_t width;  // columns in the band
+};
+Band bands[MAX_BANDS];
+int num_bands = 0;
+
 uint32_t total_cols;
-uint32_t max_pos;
-int scroll = 0;  // current VSCRSAD register value
+uint32_t band_start;  // first column of the band being scrolled
+uint32_t max_pos;     // last scroll position within that band
+int scroll = 0;       // current VSCRSAD register value
 
 // Brightness selection state.
 int brightness_idx = 0;
@@ -174,6 +192,25 @@ void sendInit() {
     p += len;
     if (delay_ms) delay(delay_ms);
   }
+}
+
+// Read the band list from galaxy.idx, keeping only bands that fit in
+// galaxy.dat and are wider than the screen. Without an index, the whole
+// file is a single band.
+void loadBandIndex() {
+  File32 idx;
+  if (!idx.open(INDEX_PATH, O_RDONLY)) {
+    bands[0] = { 0, total_cols };
+    num_bands = 1;
+    return;
+  }
+  Band b;
+  while (num_bands < MAX_BANDS && idx.read(&b, sizeof(b)) == sizeof(b)) {
+    if (b.width > (uint32_t)W && b.start + b.width <= total_cols) {
+      bands[num_bands++] = b;
+    }
+  }
+  idx.close();
 }
 
 void setScroll() {
@@ -274,7 +311,7 @@ void checkTouch() {
   touch_was_pressed = pressed;
 }
 
-// Set the backlight from the pass's elapsed time and remaining distance:
+// Set the backlight from the band's elapsed time and remaining distance:
 // ramp up over FADE_IN_S, hold at the current brightness level, ramp down
 // over the final FADE_OUT_S (estimated from remaining columns at current
 // speed). Squaring the ramp compensates for the eye's nonlinear brightness
@@ -290,7 +327,7 @@ void updateFade(uint32_t pass_start, uint32_t pos) {
 void setup() {
   Serial.begin(115200);
 
-  // Backlight starts dark; passes fade it up and down, hiding the resets.
+  // Backlight starts dark; each band fades it up and down, hiding the redraws.
   backlightBegin();
 
   // The ESP32 coprocessor shares the SPI bus with the SD card; keep it
@@ -315,23 +352,41 @@ void setup() {
     fatal("Could not open " DATA_PATH);
   }
   total_cols = data.fileSize() / COL_BYTES;
-  if (total_cols <= (uint32_t)W) {
-    fatal(DATA_PATH " is shorter than one screen");
+  loadBandIndex();
+  if (num_bands == 0) {
+    fatal("No band in " DATA_PATH " is wider than one screen");
   }
-  max_pos = total_cols - W;
+  Serial.print(num_bands);
+  Serial.println(" bands");
 
   last_report = millis();
 }
 
-void loop() {
-  // Draw the starting screenful while the backlight is dark, then run
-  // the strip once, scrolling in one direction only.
-  for (int x = 0; x < W; x++) {
-    loadColumns(x, 1);
-    blitColumn(x, colbuf[0]);
+// Keep the backlight dark for the given time, still watching for touches.
+void holdBlack(float seconds) {
+  setBacklight(0);
+  uint32_t hold_start = millis();
+  while (millis() - hold_start < (uint32_t)(seconds * 1000)) {
+    checkTouch();
+    delay(20);
+  }
+}
+
+// Run one band: draw its first screenful while the backlight is dark,
+// then scroll to its end in one direction, fading in and out.
+void scrollBand(const Band &band) {
+  band_start = band.start;
+  max_pos = band.width - W;
+
+  for (int x = 0; x < W; x += MAX_COLS_PER_FRAME) {
+    int n = min(MAX_COLS_PER_FRAME, W - x);
+    loadColumns(band_start + x, n);
+    for (int i = 0; i < n; i++) {
+      blitColumn(x + i, colbuf[i]);
+    }
   }
 
-  // Per-pass state: the strip column at the screen's left edge, plus
+  // Per-band state: the band column at the screen's left edge, plus
   // the timestamps that drive the fades and the frame schedule.
   uint32_t pos = 0;
   float sub_pos = 0.0f;
@@ -355,7 +410,7 @@ void loop() {
       // the blanking window is spent only on fast bus writes. An SD read
       // between writes would let the panel scan the entering lines while
       // they still hold the columns that just left the left edge.
-      loadColumns(pos + W - delta, delta);
+      loadColumns(band_start + pos + W - delta, delta);
 
       // Scroll bumps latch at the frame boundary but writes land
       // immediately, so until then the entering lines are still mapped
@@ -396,12 +451,14 @@ void loop() {
     }
   }
 
-  // Pass complete: settle on black, pause (still watching for touches),
-  // then restart from the top.
   setBacklight(0);
-  uint32_t hold_start = millis();
-  while (millis() - hold_start < (uint32_t)(HOLD_BLACK_S * 1000)) {
-    checkTouch();
-    delay(20);
+}
+
+void loop() {
+  // Scroll each band in turn, with a short pause on black between bands
+  // and a longer one before the strip restarts from the top.
+  for (int b = 0; b < num_bands; b++) {
+    scrollBand(bands[b]);
+    holdBlack(b < num_bands - 1 ? BAND_HOLD_S : HOLD_BLACK_S);
   }
 }
