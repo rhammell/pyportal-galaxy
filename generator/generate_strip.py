@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from PIL import Image
+from PIL import Image, ImageChops
 
 # Astronomical mosaics are far larger than Pillow's decompression-bomb
 # guard (~89.5 megapixels), which exists to stop malicious files rather
@@ -316,6 +316,39 @@ def crop_band_at(img, y0: int, band_h: int, src_w: int, src_h: int,
 
 # --------------------------------------------------------------- packing
 
+# 4x4 Bayer matrix (values 0-15) for ordered dithering. A fixed pattern,
+# unlike error diffusion, stays put as the strip scrolls instead of
+# shimmering.
+BAYER4 = (
+    (0, 8, 2, 10),
+    (12, 4, 14, 6),
+    (3, 11, 1, 9),
+    (15, 7, 13, 5),
+)
+
+_dither_cache = {}
+
+
+def dither_offsets(width: int) -> Image.Image:
+    """Per-pixel offsets added before truncating to RGB565.
+
+    Each offset spans one quantization step of its channel (0-7 for red
+    and blue's 5 bits, 0-3 for green's 6 bits), so truncation rounds up
+    or down in proportion to how close a value is to the next level.
+    This turns banding in faint gradients into fine grain, and treats
+    all three channels evenly instead of letting green, with its extra
+    bit, survive alone near black.
+    """
+    if width not in _dither_cache:
+        reps = -(-width // 4)
+        rows = [
+            (bytes(v for m in row for v in (m // 2, m // 4, m // 2)) * reps)[: width * 3]
+            for row in BAYER4
+        ]
+        raw = b"".join(rows[y % 4] for y in range(HEIGHT))
+        _dither_cache[width] = Image.frombytes("RGB", (width, HEIGHT), raw)
+    return _dither_cache[width]
+
 
 def pack_columns(band: Image.Image, out, label: str = "") -> int:
     """Pack a band into column-major big-endian RGB565, writing to `out`.
@@ -333,6 +366,7 @@ def pack_columns(band: Image.Image, out, label: str = "") -> int:
     for i, x0 in enumerate(range(0, width, CHUNK_COLS)):
         cw = min(CHUNK_COLS, width - x0)
         piece = band.crop((x0, 0, x0 + cw, HEIGHT))
+        piece = ImageChops.add(piece, dither_offsets(cw))
         raw = piece.transpose(Image.Transpose.TRANSPOSE).tobytes()
 
         pixels = array.array(
