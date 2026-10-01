@@ -458,6 +458,10 @@ void loop() {
   // Scroll each band in turn, with a short pause on black between bands
   // and a longer one before the strip restarts from the top.
   for (int b = 0; b < num_bands; b++) {
+    Serial.print("Band ");
+    Serial.print(b + 1);
+    Serial.print("/");
+    Serial.println(num_bands);
     scrollBand(bands[b]);
     holdBlack(b < num_bands - 1 ? BAND_HOLD_S : HOLD_BLACK_S);
   }
