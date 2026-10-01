@@ -212,6 +212,13 @@ def ensure_source(src: Source) -> Path:
 
     headers = {"Range": f"bytes={have}-"} if have else {}
     resp = requests.get(src.url, headers=headers, stream=True, timeout=120)
+
+    # The size check can come back empty, so a complete cache gets asked
+    # to resume past its end. The server refuses with 416: nothing left.
+    if resp.status_code == 416 and have:
+        resp.close()
+        print(f"Cached: {dest.name} ({have / 1e6:.0f} MB)")
+        return dest
     resp.raise_for_status()
 
     # A server that ignores the Range header sends 200 and the whole file.
