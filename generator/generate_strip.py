@@ -195,28 +195,35 @@ def remote_size(url: str) -> int:
 def ensure_source(src: Source) -> Path:
     """Download the mosaic if it is not already cached, resuming a partial
     file rather than starting over. These run from 125 MB to 14 GB, so a
-    dropped connection should not cost the whole transfer."""
+    dropped connection should not cost the whole transfer.
+
+    Downloads land in a .part file that is renamed only once complete, so
+    a file under its final name is always whole and is used without
+    asking the server anything. The NASA server's size reports are
+    unreliable enough that comparing sizes can't be trusted."""
 
     CACHE_DIR.mkdir(exist_ok=True)
     dest = CACHE_DIR / src.filename
-
-    total = remote_size(src.url)
-    have = dest.stat().st_size if dest.exists() else 0
-
-    if total and have == total:
-        print(f"Cached: {dest.name} ({have / 1e6:.0f} MB)")
+    if dest.exists():
+        print(f"Cached: {dest.name} ({dest.stat().st_size / 1e6:.0f} MB)")
         return dest
+
+    part = dest.with_name(dest.name + ".part")
+    total = remote_size(src.url)
+    have = part.stat().st_size if part.exists() else 0
+
     if have > total > 0:
-        # Cache is larger than the source: stale or corrupt, so start over.
+        # Partial file is larger than the source: stale, so start over.
         have = 0
 
     headers = {"Range": f"bytes={have}-"} if have else {}
     resp = requests.get(src.url, headers=headers, stream=True, timeout=120)
 
-    # The size check can come back empty, so a complete cache gets asked
-    # to resume past its end. The server refuses with 416: nothing left.
+    # Resuming a .part that already holds the whole file asks for bytes
+    # past the end, which the server refuses with 416: nothing left.
     if resp.status_code == 416 and have:
         resp.close()
+        part.rename(dest)
         print(f"Cached: {dest.name} ({have / 1e6:.0f} MB)")
         return dest
     resp.raise_for_status()
@@ -231,7 +238,7 @@ def ensure_source(src: Source) -> Path:
 
     written = have
     next_report = written + 50e6
-    with open(dest, "ab" if resuming else "wb") as f:
+    with open(part, "ab" if resuming else "wb") as f:
         for block in resp.iter_content(chunk_size=1 << 20):
             f.write(block)
             written += len(block)
@@ -240,6 +247,10 @@ def ensure_source(src: Source) -> Path:
                 print(f"  {written / 1e6:.0f} MB{pct}", flush=True)
                 next_report = written + 50e6
 
+    if total and written < total:
+        sys.exit(f"Download ended early at {written / 1e6:.0f} of "
+                 f"{total / 1e6:.0f} MB. Run again to resume.")
+    part.rename(dest)
     print(f"  done, {written / 1e6:.0f} MB")
     return dest
 
