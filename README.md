@@ -1,5 +1,9 @@
 # pyportal-galaxy
 
+<p align="center">
+  <img src="img/pyportal_galaxy_viewer.png" alt="PyPortal Galaxy Viewer">
+</p>
+
 A visualization for the Adafruit PyPortal that scrolls through large astronomical mosaics, producing a slow, continuous journey across a galaxy or nebula. The generator tiles 240-pixel-tall bands from top to bottom across an entire mosaic and stitches them into a single data file that can take days of continuous scrolling to complete. At the slowest pan speed, a strip of the Rubin Observatory's Virgo Cluster mosaic takes over 10 days to traverse.
 
 This repository contains the source code for generating and displaying the galaxy imagery, and CAD files for a 3D-printable PyPortal stand.
@@ -88,6 +92,7 @@ generator/    strip generator + requirements
               output/  generated files (gitignored)
                        galaxy.dat / .idx / .png — strip, band index, preview
 cad/          stand design (src/ = editable CAD, export/ = printable STL exports)
+img/          README hero image
 ```
 
 ## Usage
