@@ -5,6 +5,7 @@ generator/output/
 # Output videos
 videos/
 
+# Python virtual environment
 .venv/
 __pycache__/
 *.pyc
@@ -17,4 +18,3 @@ firmware/**/build/
 *.FCBak
 *.FCStd1
 *.fcbak
-hackster_tutorial.md
