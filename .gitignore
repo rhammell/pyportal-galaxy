@@ -2,6 +2,9 @@
 generator/cache/
 generator/output/
 
+# Output videos
+videos/
+
 .venv/
 __pycache__/
 *.pyc
