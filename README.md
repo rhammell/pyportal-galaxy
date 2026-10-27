@@ -16,7 +16,7 @@ Displaying the strip relies on two separate processes: cutting strips out of a m
 
 ### Image Generation
 
-The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 125 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/galaxy.dat`, along with a small band index, `galaxy.idx`. Each run overwrites these files, so the data and index always match; since the mosaic stays cached, switching sources is just a rerun.
+The strip is built by `generator/generate_strip.py`, which runs on your computer. It downloads the chosen mosaic once into `generator/cache/` (resumable, since these range from 127 MB to 14 GB), converts bands to RGB565, and writes the result column-major to `generator/output/galaxy.dat`, along with a small band index, `galaxy.idx`. Each run overwrites these files, so the data and index always match; since the mosaic stays cached, switching sources is just a rerun.
 
 The generator tiles 240-pixel bands from top to bottom, covering the entire mosaic in a single data file. Bands are stored back to back, and the index records where each one starts and how wide it is, so the display can fade between them.
 
@@ -30,7 +30,6 @@ Run times at the slowest pan speed (10 px/s):
 | --- | --- | --- | --- |
 | `jades` | 36 | 209 MB | 12.1 hr |
 | `carina` | 36 | 252 MB | 14.6 hr |
-| `tarantula` | 36 | 252 MB | 14.6 hr |
 | `pandora` | 56 | 474 MB | 1.1 days |
 | `vista` | 126 | 2.3 GB | 5.9 days |
 | `rubin` | 92 | 4.0 GB | 10.4 days |
@@ -39,7 +38,7 @@ Rubin reaches the FAT32 4 GB file size limit after 92 of its 215 bands, so the o
 
 | Flag | Effect |
 | --- | --- |
-| `--source` | Which mosaic to use. Run with `--list` to see all six. |
+| `--source` | Which mosaic to use. Run with `--list` to see all five. |
 | `--gamma` | Brighten midtones before RGB565 conversion. Values above 1.0 lift faint nebulosity. |
 | `--name` | Output basename (default `galaxy`). Use another name to keep a strip without overwriting, then rename it to `galaxy.*` on the SD card. |
 
@@ -62,12 +61,11 @@ Touch controls split the screen in half:
 
 ## Image Sources
 
-All six are public mosaics from named observatories, verified downloadable. Sizes are the download, not the decoded size in memory.
+All five are public mosaics from named observatories, verified downloadable. Sizes are the download, not the decoded size in memory.
 
 | Source | Object | Telescope | Pixels | Download |
 | --- | --- | --- | --- | --- |
 | `carina` | Cosmic Cliffs, NGC 3324 | JWST | 14,575 x 8,441 | 137 MB |
-| `tarantula` | 30 Doradus | JWST | 14,557 x 8,418 | 125 MB |
 | `pandora` | Pandora's Cluster, Abell 2744 | JWST | 17,644 x 13,422 | 178 MB |
 | `jades` | GOODS-South deep field | JWST | 12,097 x 8,482 | 127 MB |
 | `vista` | Milky Way centre | ESO VISTA | 40,000 x 30,132 | 4.0 GB |
@@ -139,7 +137,7 @@ The PyPortal starts scrolling as soon as the upload finishes. The SD card must b
 
 ## Image Credits
 
-- **Carina / Tarantula** — NASA, ESA, CSA, STScI (ESA/Webb for Tarantula)
+- **Carina** — NASA, ESA, CSA, STScI
 - **Pandora's Cluster** — NASA, ESA, CSA, Ivo Labbe (Swinburne), Rachel Bezanson (University of Pittsburgh); Image Processing: Alyssa Pagan (STScI)
 - **JADES** — NASA, ESA, CSA, Brant Robertson (UC Santa Cruz), Ben Johnson (CfA), Sandro Tacchella (Cambridge), Marcia Rieke (University of Arizona), Daniel Eisenstein (CfA); Image Processing: Alyssa Pagan (STScI)
 - **Milky Way centre** — ESO/VVV Survey/D. Minniti. Acknowledgement: Ignacio Toledo, Martin Kornmesser

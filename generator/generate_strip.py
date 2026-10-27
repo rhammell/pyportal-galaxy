@@ -106,16 +106,6 @@ SOURCES: dict[str, Source] = {
         credit="NASA, ESA, CSA, STScI",
         note="137 MB. Small and quick -- a good end-to-end test of the pipeline.",
     ),
-    "tarantula": Source(
-        title="Tarantula Nebula (30 Doradus)",
-        telescope="JWST NIRCam",
-        width=14557,
-        height=8418,
-        url="https://esawebb.org/media/archives/images/original/weic2212a.tif",
-        filename="tarantula_14557x8418.tif",
-        credit="ESA/Webb, NASA, CSA, STScI",
-        note="125 MB.",
-    ),
     "pandora": Source(
         title="Pandora's Cluster, Abell 2744",
         telescope="JWST NIRCam",
@@ -194,7 +184,7 @@ def remote_size(url: str) -> int:
 
 def ensure_source(src: Source) -> Path:
     """Download the mosaic if it is not already cached, resuming a partial
-    file rather than starting over. These run from 125 MB to 14 GB, so a
+    file rather than starting over. These run from 127 MB to 14 GB, so a
     dropped connection should not cost the whole transfer.
 
     Downloads land in a .part file that is renamed only once complete, so
